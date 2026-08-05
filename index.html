@@ -1119,7 +1119,7 @@ const UI = {
   clube: null, abaClube: 'painel',
   divLiga: null, visaoLiga: 'tabela',
   mercDiv: 'alc', mercOrd: 'preco', mercFaixa: 'todas', mercBusca: '', mercCrise: false, mercDD: false, alvo: null,
-  alavFiltro: 'todas', radar: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'desempenho', relClube: null,
+  alavFiltro: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'desempenho', relClube: null,
   criaDiv: 'todas', criaOrd: 'preco', nome: '', foco: null
 };
 let SCROLL = {}, ULTIMA = '';
@@ -1301,11 +1301,6 @@ function telaFundo() {
       '<div class="gap"></div><div class="bt2">' +
       '<button class="btn gh" data-a="emprestimo" ' + (lim < 1e6 ? 'disabled' : '') + '>Tomar credito</button>' +
       '<button class="btn sec2" data-a="quitarfundo" ' + (S.f.divida <= 0 || S.f.caixa <= 0 ? 'disabled' : '') + '>Abater divida</button></div>');
-  const nots = S.noticias.filter(n => UI.radar === 'todas' || (UI.radar === 'pos' && n.tipo === 'v') || (UI.radar === 'neg' && n.tipo === 'r'));
-  h += sec('radar') +
-    '<div class="filtros f1">' + campo('Filtrar', selHTML('radar', UI.radar, [['todas', 'Todos os avisos'], ['pos', 'So boas noticias'], ['neg', 'So alertas']])) + '</div>' +
-    painel('', '', nots.length ? nots.slice(0, 10).map(n => '<div class="nt"><i class="' + n.tipo + '"></i><span><em>T' + n.temp + '</em>' + esc(n.t) + '</span></div>').join('') : vazio('Sem registros'), true);
-  h += '<div class="gap"></div><div class="gap"></div><button class="btn dgr sm" data-a="apagar">Encerrar o fundo e apagar o save</button>';
   return h + '</div>';
 }
 
@@ -1908,7 +1903,9 @@ function relEventos() {
   const nots = S.noticias.filter(n => UI.relFiltro === 'todas' || n.temp === Number(UI.relFiltro));
   return '<div class="filtros f1">' + campo('Temporada', selHTML('relf', UI.relFiltro,
     [['todas', 'Todas as temporadas']].concat(temps.map(t => [t, 'Temporada ' + t])))) + '</div>' +
-    painel('', '', nots.length ? nots.map(n => '<div class="nt"><i class="' + n.tipo + '"></i><span><em>T' + n.temp + '</em>' + esc(n.t) + '</span></div>').join('') : vazio('Sem registros'), true);
+    painel('', '', nots.length ? nots.map(n => '<div class="nt"><i class="' + n.tipo + '"></i><span><em>T' + n.temp + '</em>' + esc(n.t) + '</span></div>').join('') : vazio('Sem registros'), true) +
+    '<div class="gap"></div><div class="gap"></div>' + sec('encerrar') +
+    '<button class="btn dgr sm" data-a="apagar">Encerrar o fundo e apagar o save</button>';
 }
 
 /* ---------------- fechamento de temporada ---------------- */
@@ -2062,7 +2059,6 @@ document.addEventListener('change', e => {
     case 'mercfx': UI.mercFaixa = v; break;
     case 'divliga': UI.divLiga = Number(v); break;
     case 'visaoliga': UI.visaoLiga = v; break;
-    case 'radar': UI.radar = v; break;
     case 'relf': UI.relFiltro = v === 'todas' ? 'todas' : Number(v); break;
   }
   render();
