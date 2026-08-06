@@ -162,7 +162,7 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--data);font-varia
 .gap{height:8px}
 
 /* ---------- trocador de ativo ---------- */
-.swx{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin-bottom:11px;padding:1px 1px 3px;-webkit-overflow-scrolling:touch}
+.swx{position:relative;display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin-bottom:11px;padding:1px 1px 3px;-webkit-overflow-scrolling:touch;overflow-anchor:none}
 .swx::-webkit-scrollbar{display:none}
 .sx{flex:0 0 auto;text-align:left;padding:8px 13px;border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);min-width:96px}
 .sx b{display:block;font-size:13.5px;font-weight:600;line-height:1.2;white-space:nowrap}
@@ -3189,16 +3189,17 @@ function render() {
   restaurarTrilhos(trilhos);
   restaurarFoco();
 }
-/* mantem a posicao horizontal do trocador de ativos e deixa o selecionado a vista */
+/* mantem a posicao horizontal do trocador de ativos e deixa o selecionado a vista.
+   a conta usa posicoes de tela para nao depender de offsetParent */
 function restaurarTrilhos(anteriores) {
   [].forEach.call(document.querySelectorAll('.swx'), (e, i) => {
     if (anteriores[i] !== undefined) e.scrollLeft = anteriores[i];
     const on = e.querySelector('.sx.on');
-    if (!on || !e.clientWidth) return;
-    const min = on.offsetLeft + on.offsetWidth - e.clientWidth + 10;
-    const max = on.offsetLeft - 10;
-    if (e.scrollLeft < min) e.scrollLeft = min;
-    if (e.scrollLeft > max) e.scrollLeft = max;
+    if (!on || !e.getBoundingClientRect) return;
+    const cr = e.getBoundingClientRect(), br = on.getBoundingClientRect();
+    if (!cr.width || !br.width) return;
+    if (br.left < cr.left + 8) e.scrollLeft += br.left - cr.left - 8;
+    else if (br.right > cr.right - 8) e.scrollLeft += br.right - cr.right + 8;
   });
 }
 function restaurarFoco() {
