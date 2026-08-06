@@ -3173,8 +3173,10 @@ function render() {
     ULTIMA = 'rel-fechamento';
     return;
   }
-  const chave = [TELA, UI.abaClube, UI.clube, UI.alvo, UI.divLiga, UI.visaoLiga, UI.abaRel, UI.relClube, UI.abaMercado].join('|');
+  /* trocar de ativo nao muda o layout da tela: a rolagem e mantida */
+  const chave = [TELA, UI.abaClube, UI.alvo, UI.divLiga, UI.visaoLiga, UI.abaRel, UI.abaMercado].join('|');
   if (chave === ULTIMA) SCROLL[chave] = window.scrollY;
+  const trilhos = [].map.call(document.querySelectorAll('.swx'), e => e.scrollLeft);
   let corpo = '';
   if (TELA === 'clubes') corpo = telaClubes();
   else if (TELA === 'mercado') corpo = telaMercado();
@@ -3184,7 +3186,20 @@ function render() {
   app.innerHTML = topo() + corpo + nav();
   if (chave === ULTIMA) window.scrollTo(0, SCROLL[chave] || 0); else window.scrollTo(0, 0);
   ULTIMA = chave;
+  restaurarTrilhos(trilhos);
   restaurarFoco();
+}
+/* mantem a posicao horizontal do trocador de ativos e deixa o selecionado a vista */
+function restaurarTrilhos(anteriores) {
+  [].forEach.call(document.querySelectorAll('.swx'), (e, i) => {
+    if (anteriores[i] !== undefined) e.scrollLeft = anteriores[i];
+    const on = e.querySelector('.sx.on');
+    if (!on || !e.clientWidth) return;
+    const min = on.offsetLeft + on.offsetWidth - e.clientWidth + 10;
+    const max = on.offsetLeft - 10;
+    if (e.scrollLeft < min) e.scrollLeft = min;
+    if (e.scrollLeft > max) e.scrollLeft = max;
+  });
 }
 function restaurarFoco() {
   if (!UI.foco) return;
