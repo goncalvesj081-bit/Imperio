@@ -1957,7 +1957,7 @@ const UI = {
   mercDiv: 'alc', mercOrd: 'preco', mercFaixa: 'todas', mercBusca: '', mercCrise: false, mercDD: false, mercLivre: false,
   abaMercado: 'clubes', mercLimite: 18, alvo: null,
   sinOrigem: null, sinPontos: 2, sinPreco: 'justo', ordEsp: 'conquistas',
-  alavFiltro: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'desempenho', relClube: null, copaAberta: {},
+  alavFiltro: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'fundo', relClube: null, copaAberta: {},
   criaDiv: 'todas', criaOrd: 'preco', nome: '', foco: null
 };
 let SCROLL = {}, ULTIMA = '';
@@ -2801,18 +2801,19 @@ function telaCopas() {
 
 /* ---------------- tela: relatorios ---------------- */
 function telaRel() {
-  let h = '<div class="wrap">' +
-    seg(UI.abaRel, [['desempenho', 'Desempenho'], ['esportivo', 'Esportivo'], ['conquistas', 'Conquistas'], ['carteira', 'Carteira'], ['ativos', 'Ativos'], ['eventos', 'Eventos']], 'abarel');
-  if (UI.abaRel === 'conquistas') h += relConquistas();
-  else if (UI.abaRel === 'esportivo') h += relEsportivo();
-  else if (UI.abaRel === 'carteira') h += relCarteira();
-  else if (UI.abaRel === 'ativos') h += relAtivos();
+  const abas = [['fundo', 'Fundo'], ['carteira', 'Carteira'], ['clubes', 'Clubes'], ['palmares', 'Palmares'], ['eventos', 'Eventos']];
+  if (!abas.some(x => x[0] === UI.abaRel)) UI.abaRel = 'fundo';
+  let h = '<div class="wrap">' + seg(UI.abaRel, abas, 'abarel');
+  if (UI.abaRel === 'carteira') h += relCarteira();
+  else if (UI.abaRel === 'clubes') h += relClubes();
+  else if (UI.abaRel === 'palmares') h += relPalmares();
   else if (UI.abaRel === 'eventos') h += relEventos();
-  else h += relDesempenho();
+  else h += relFundo();
   return h + '</div>';
 }
+
 const BENCH_TAXA = 0.05;
-function relDesempenho() {
+function relFundo() {
   const hist = S.f.hist, pat = patrimonio();
   const inicial = S.f.inicial || 90e6;
   const anos = Math.max(1, S.temporada - 1);
@@ -2951,106 +2952,116 @@ function modalAtivoHistorico(chave) {
       })) + '</div>' : '') +
     '<div class="gap"></div><button class="btn sec2" data-a="fechar">Fechar</button>');
 }
-function relEsportivo() {
-  const lista = meus(), hist = S.f.hist;
-  const tit = hist.reduce((t, x) => t + (x.tit || 0), 0);
-  const ace = hist.reduce((t, x) => t + (x.ace || 0), 0);
-  const que = hist.reduce((t, x) => t + (x.que || 0), 0);
+
+/* ---------------- clubes: consolidado e ficha de cada ativo ---------------- */
+function relClubes() {
+  const todos = todosOsAtivos();
+  let h = '';
+  if (!todos.length) return painel('', '', vazio('Nenhum clube passou pelo fundo ainda'), true);
+  const ord = todos.slice().sort((x, y) =>
+    UI.ordEsp === 'aprov' ? y.r.aprov - x.r.aprov :
+      UI.ordEsp === 'temps' ? y.r.temps - x.r.temps :
+        UI.ordEsp === 'resultado' ? y.resultado - x.resultado :
+          (y.r.titulos + y.r.tacas + y.r.acessos) - (x.r.titulos + x.r.tacas + x.r.acessos));
+  h += sec('todos os clubes do fundo', todos.length + ' no total') +
+    '<div class="filtros f1">' + campo('Ordenar por', selHTML('ordesp', UI.ordEsp,
+      [['conquistas', 'Mais conquistas'], ['aprov', 'Melhor aproveitamento'], ['temps', 'Mais temporadas'], ['resultado', 'Melhor resultado']])) + '</div>' +
+    painel('', '', tabela(['Clube', 'Temp', 'Aprov', 'Conquistas'], ord.map(x =>
+      '<tr class="cl" data-a="histativo:' + x.chave + '"><td class="l"><span class="nm">' + esc(x.nome) +
+      (x.atual ? '' : ' <span class="mut" style="font-weight:400">(vendido)</span>') + '</span>' +
+      '<span class="sub">T' + x.desde + (x.ate ? ' a T' + x.ate : ' ate hoje') + ' - ' + esc(x.div) + '</span></td>' +
+      '<td>' + x.r.temps + '</td><td class="' + (x.r.aprov >= 0.5 ? 'ok' : '') + '">' + pct(x.r.aprov) + '</td>' +
+      '<td>' + (x.r.titulos ? '<span class="ok">' + x.r.titulos + 'L</span> ' : '') +
+      (x.r.tacas ? '<span class="gd">' + x.r.tacas + 'C</span> ' : '') +
+      (x.r.acessos ? '<span class="ok">' + x.r.acessos + 'A</span> ' : '') +
+      (x.r.quedas ? '<span class="neg">' + x.r.quedas + 'R</span>' : '') +
+      (x.r.titulos + x.r.tacas + x.r.acessos + x.r.quedas === 0 ? '<span class="mut">-</span>' : '') + '</td></tr>')), true) +
+    '<p class="msg" style="margin-top:9px">L de liga, C de copa, A de acesso, R de rebaixamento. Toque para a ficha completa.</p>';
+
+  const lista = meus();
+  if (!lista.length) return h;
+  if (UI.relClube === null || !ehMeu(UI.relClube)) UI.relClube = lista[0].id;
+  const a = ativo(UI.relClube), c = S.clubes[UI.relClube], b = balanco(a), hc = a.hist || [];
+  h += sec('ficha do ativo', 'somente clubes na carteira') + trocador(listaAtivos(), UI.relClube, 'relativo');
+  h += '<div class="panel"><div class="hd"><span>' + esc(c.nome) + '</span><b>' + esc(DIVS[c.div]) + '</b></div>' +
+    '<div class="stats c3">' +
+    celula('Valor hoje', moeda(valorMercado(a, c).liquido), 'compra: ' + moeda(a.compra.preco)) +
+    celula('Investido', moeda(b.investido), 'compra mais aportes', 'neg') +
+    celula('Projeto', sinal(b.resultado), b.resultado >= 0 ? 'lucro' : 'prejuizo', b.resultado >= 0 ? 'ok' : 'neg') +
+    '</div></div>';
+  if (!hc.length) return h + '<div class="gap"></div>' + painel('', '', vazio('Os graficos deste ativo aparecem apos a primeira temporada'), true);
+  h += sec('valor do ativo') +
+    painel('', '', '<div class="pw">' + svgLinha([{ dados: hc.map(x => ({ l: 'T' + x.t, v: x.valor })) }], curto, 'gav') + '</div>', true);
+  h += sec('receita contra despesa') +
+    painel('', '', '<div class="pw">' + svgDuplas(hc.map(x => ({ l: 'T' + x.t, a: x.rec, b: x.des })), curto) + '</div>' +
+      legenda([['Receita', 'var(--ac)'], ['Despesa', '#3A4B5C']]), true);
+  h += sec('posicao final por temporada', 'mais alto e melhor') +
+    painel('', '', '<div class="pw" style="padding-top:2px">' +
+      svgLinha([{ dados: hc.map(x => ({ l: 'T' + x.t, v: -x.pos })) }], n => Math.round(-n) + 'o', 'gpos') + '</div>', true);
+  const melhor = hc.slice().sort((x, y) => aprov(y) - aprov(x))[0];
+  const pior = hc.slice().sort((x, y) => aprov(x) - aprov(y))[0];
+  const comAcesso = hc.filter(x => x.res === 'acesso' || x.res === 'titulo');
+  const semNada = hc.filter(x => !x.res);
+  const medVal = arr => arr.length ? arr.reduce((t, x) => t + (x.dval || 0), 0) / arr.length : 0;
+  h += sec('leitura do fundo') + painel('', '',
+    ln('Melhor campanha', 'T' + melhor.t + ' - ' + pct(aprov(melhor)), 'ok', melhor.pos + 'o na ' + melhor.div) +
+    ln('Pior campanha', 'T' + pior.t + ' - ' + pct(aprov(pior)), 'neg', pior.pos + 'o na ' + pior.div) +
+    ln('Media de pontos por jogo', (hc.reduce((t, x) => t + x.pts, 0) / Math.max(1, hc.reduce((t, x) => t + x.j, 0))).toFixed(2).replace('.', ',')) +
+    (comAcesso.length ? ln('Valorizacao media com acesso ou titulo', sinal(medVal(comAcesso)), 'ok', comAcesso.length + ' temporada' + (comAcesso.length === 1 ? '' : 's')) : '') +
+    (semNada.length ? ln('Valorizacao media sem mudanca', sinal(medVal(semNada)), medVal(semNada) >= 0 ? '' : 'neg', semNada.length + ' temporada' + (semNada.length === 1 ? '' : 's')) : '') +
+    ln('Forca hoje contra a media da liga', c.nivel + ' contra ' + Math.round(REF.niv[c.div]), c.nivel >= REF.niv[c.div] ? 'ok' : 'gd'));
+  h += sec('campanha por temporada') +
+    painel('', '', tabela(['Temp', 'Divisao', 'Campanha', 'Aprov', 'Desfecho'],
+      hc.slice().reverse().map(x => {
+        const des = x.res === 'titulo' ? tag('titulo', 'v') : x.res === 'acesso' ? tag('acesso', 'v') :
+          x.res === 'queda' ? tag('queda', 'r') : (x.taca && x.taca.length ? tag('copa', 'a') : tag('manteve', 'n'));
+        return '<tr><td class="l"><span class="nm">T' + x.t + '</span><span class="sub">' + x.pos + ' de ' + (x.n || '-') + '</span></td>' +
+          '<td>' + esc(x.div.replace('Liga ', '')) + '</td>' +
+          '<td>' + x.v + '-' + x.e + '-' + x.d + '</td>' +
+          '<td class="' + (aprov(x) >= 0.5 ? 'ok' : '') + '">' + pct(aprov(x)) + '</td>' +
+          '<td>' + des + '</td></tr>';
+      })), true);
+  return h;
+}
+
+/* ---------------- palmares: campanha do fundo, copas e conquistas ---------------- */
+function tagConq(t) { return '<span class="tag ' + (t === 'ouro' ? 'a' : t === 'prata' ? 'n' : 'v') + '">' + t + '</span>'; }
+function relPalmares() {
+  const hist = S.f.hist, todos = todosOsAtivos();
+  const tit = todos.reduce((t, x) => t + x.r.titulos, 0);
+  const ace = todos.reduce((t, x) => t + x.r.acessos, 0);
+  const que = todos.reduce((t, x) => t + x.r.quedas, 0);
+  const j = todos.reduce((t, x) => t + x.r.j, 0);
+  const v = todos.reduce((t, x) => t + x.r.v, 0), emp = todos.reduce((t, x) => t + x.r.e, 0), der = todos.reduce((t, x) => t + x.r.d, 0);
+  const pts = todos.reduce((t, x) => t + x.r.pts, 0);
+  const gp = todos.reduce((t, x) => t + x.r.gp, 0), gc = todos.reduce((t, x) => t + x.r.gc, 0);
+  const copas = [];
+  todos.forEach(x => x.r.copas.forEach(cc => copas.push({ t: cc.t, nome: cc.nome, clube: x.nome })));
+  copas.sort((a, b) => b.t - a.t);
   let h = '<div class="panel"><div class="hd"><span>CAMPANHA DO FUNDO</span><b>' + hist.length + ' TEMPORADA' + (hist.length === 1 ? '' : 'S') + '</b></div>' +
     '<div class="stats c3">' +
-    celula('Titulos', String(tit), tit ? 'liga vencida' : 'nenhum ainda', tit ? 'ok' : '') +
-    celula('Acessos', String(ace), ace ? 'divisoes subidas' : 'nenhum ainda', ace ? 'ok' : '') +
-    celula('Quedas', String(que), que ? 'rebaixamentos' : 'nenhuma', que ? 'neg' : '') +
+    celula('Ligas', String(tit), tit ? 'titulos nacionais' : 'nenhum ainda', tit ? 'ok' : '') +
+    celula('Copas', String(copas.length), copas.length ? 'mata-mata' : 'nenhuma ainda', copas.length ? 'gd' : '') +
+    celula('Acessos', String(ace), que ? que + ' rebaixamento' + (que === 1 ? '' : 's') : 'sem quedas', ace ? 'ok' : '') +
     '</div></div>';
-  if (!hist.length) return h + '<div class="gap"></div>' + painel('', '', vazio('A analise esportiva aparece no fim da primeira temporada'), true);
-
-  const todas = [];
-  lista.forEach(a => (a.hist || []).forEach(x => todas.push({ a: a, x: x })));
-  const j = todas.reduce((t, r) => t + r.x.j, 0), v = todas.reduce((t, r) => t + r.x.v, 0);
-  const emp = todas.reduce((t, r) => t + r.x.e, 0), der = todas.reduce((t, r) => t + r.x.d, 0);
-  const pts = todas.reduce((t, r) => t + r.x.pts, 0);
-  const gp = todas.reduce((t, r) => t + r.x.gp, 0), gc = todas.reduce((t, r) => t + r.x.gc, 0);
-  h += sec('aproveitamento por temporada', 'portfolio inteiro') +
-    painel('', '', '<div class="pw">' + svgBarras(hist.map(x => ({ l: 'T' + x.t, v: x.apr || 0 })), n => Math.round(n) + '%') + '</div>', true);
   if (j) {
     h += '<div class="gap"></div>' + painel('', '',
       ln('Jogos disputados', num(j), '', v + 'V ' + emp + 'E ' + der + 'D') +
       ln('Aproveitamento medio', pct(pts / (j * 3)), pts / (j * 3) >= 0.5 ? 'ok' : '') +
       ln('Gols', gp + ' pro, ' + gc + ' contra', '', 'saldo ' + (gp - gc >= 0 ? '+' : '') + (gp - gc)));
   }
-  const todos = todosOsAtivos();
-  if (todos.length) {
-    const ord = todos.slice().sort((x, y) =>
-      UI.ordEsp === 'aprov' ? y.r.aprov - x.r.aprov :
-        UI.ordEsp === 'temps' ? y.r.temps - x.r.temps :
-          (y.r.titulos + y.r.tacas + y.r.acessos) - (x.r.titulos + x.r.tacas + x.r.acessos));
-    h += sec('todos os clubes do fundo', todos.length + ' no total') +
-      '<div class="filtros f1">' + campo('Ordenar por', selHTML('ordesp', UI.ordEsp,
-        [['conquistas', 'Mais conquistas'], ['aprov', 'Melhor aproveitamento'], ['temps', 'Mais temporadas']])) + '</div>' +
-      painel('', '', tabela(['Clube', 'Temp', 'Aprov', 'Conquistas'], ord.map(x =>
-        '<tr class="cl" data-a="histativo:' + x.chave + '"><td class="l"><span class="nm">' + esc(x.nome) +
-        (x.atual ? '' : ' <span class="mut" style="font-weight:400">(vendido)</span>') + '</span>' +
-        '<span class="sub">T' + x.desde + (x.ate ? ' a T' + x.ate : ' ate hoje') + ' - ' + esc(x.div) + '</span></td>' +
-        '<td>' + x.r.temps + '</td><td class="' + (x.r.aprov >= 0.5 ? 'ok' : '') + '">' + pct(x.r.aprov) + '</td>' +
-        '<td>' + (x.r.titulos ? '<span class="ok">' + x.r.titulos + 'L</span> ' : '') +
-        (x.r.tacas ? '<span class="gd">' + x.r.tacas + 'C</span> ' : '') +
-        (x.r.acessos ? '<span class="ok">' + x.r.acessos + 'A</span> ' : '') +
-        (x.r.quedas ? '<span class="neg">' + x.r.quedas + 'R</span>' : '') +
-        (x.r.titulos + x.r.tacas + x.r.acessos + x.r.quedas === 0 ? '<span class="mut">-</span>' : '') + '</td></tr>')), true) +
-      '<p class="msg" style="margin-top:9px">L de liga, C de copa, A de acesso, R de rebaixamento. Toque para abrir a ficha completa.</p>';
+  if (hist.length) {
+    h += sec('aproveitamento por temporada', 'portfolio inteiro') +
+      painel('', '', '<div class="pw">' + svgBarras(hist.map(x => ({ l: 'T' + x.t, v: x.apr || 0 })), n => Math.round(n) + '%') + '</div>', true);
   }
-  if (lista.length) {
-    if (UI.relClube === null || !ehMeu(UI.relClube)) UI.relClube = lista[0].id;
-    const a = ativo(UI.relClube), c = S.clubes[UI.relClube], hc = a.hist || [];
-    h += sec('trajetoria do ativo');
-    h += trocador(listaAtivos(), UI.relClube, 'relativo');
-    if (!hc.length) h += painel('', '', vazio('Este ativo ainda nao completou uma temporada'), true);
-    else {
-      h += painel(c.nome, DIVS[c.div],
-        '<div class="pw" style="padding-top:2px">' +
-        svgLinha([{ dados: hc.map(x => ({ l: 'T' + x.t, v: -x.pos })) }], n => Math.round(-n) + 'o', 'gpos') + '</div>' +
-        legenda([['Posicao final na divisao (mais alto = melhor)', 'var(--ac)']]), true) + '<div class="gap"></div>';
-      const melhor = hc.slice().sort((x, y) => aprov(y) - aprov(x))[0];
-      const pior = hc.slice().sort((x, y) => aprov(x) - aprov(y))[0];
-      const comAcesso = hc.filter(x => x.res === 'acesso' || x.res === 'titulo');
-      const semNada = hc.filter(x => !x.res);
-      const medVal = arr => arr.length ? arr.reduce((t, x) => t + (x.dval || 0), 0) / arr.length : 0;
-      h += painel('LEITURA DO FUNDO', '',
-        ln('Melhor campanha', 'T' + melhor.t + ' - ' + pct(aprov(melhor)), 'ok', melhor.pos + 'o na ' + melhor.div) +
-        ln('Pior campanha', 'T' + pior.t + ' - ' + pct(aprov(pior)), 'neg', pior.pos + 'o na ' + pior.div) +
-        ln('Media de pontos por jogo', (hc.reduce((t, x) => t + x.pts, 0) / Math.max(1, hc.reduce((t, x) => t + x.j, 0))).toFixed(2).replace('.', ',')) +
-        (comAcesso.length ? ln('Valorizacao media com acesso ou titulo', sinal(medVal(comAcesso)), 'ok', comAcesso.length + ' temporada' + (comAcesso.length === 1 ? '' : 's')) : '') +
-        (semNada.length ? ln('Valorizacao media sem mudanca', sinal(medVal(semNada)), medVal(semNada) >= 0 ? '' : 'neg', semNada.length + ' temporada' + (semNada.length === 1 ? '' : 's')) : '') +
-        ln('Forca hoje contra a media da liga', c.nivel + ' contra ' + Math.round(REF.niv[c.div]), c.nivel >= REF.niv[c.div] ? 'ok' : 'gd')) +
-        '<div class="gap"></div>';
-      h += painel('', '', tabela(['Temp', 'Divisao', 'Campanha', 'Aprov', 'Desfecho'],
-        hc.slice().reverse().map(x => {
-          const des = x.res === 'titulo' ? tag('titulo', 'v') : x.res === 'acesso' ? tag('acesso', 'v') :
-            x.res === 'queda' ? tag('queda', 'r') : tag('manteve', 'n');
-          return '<tr><td><span class="nm">T' + x.t + '</span><span class="sub">' + x.pos + ' de ' + (x.n || '-') + '</span></td>' +
-            '<td>' + esc(x.div.replace('Liga ', '')) + '</td>' +
-            '<td>' + x.v + '-' + x.e + '-' + x.d + '</td>' +
-            '<td class="' + (aprov(x) >= 0.5 ? 'ok' : '') + '">' + pct(aprov(x)) + '</td>' +
-            '<td>' + des + '</td></tr>';
-        })), true);
-    }
-  }
-  return h;
-}
-function tagConq(t) { return '<span class="tag ' + (t === 'ouro' ? 'a' : t === 'prata' ? 'n' : 'v') + '">' + t + '</span>'; }
-function relConquistas() {
+  h += sec('copas conquistadas', copas.length + (copas.length === 1 ? ' taca' : ' tacas'));
+  h += copas.length
+    ? painel('', '', tabela(['Temp', 'Competicao', 'Clube'], copas.map(cc =>
+      '<tr><td class="l"><span class="nm">T' + cc.t + '</span></td><td class="l">' + esc(cc.nome) + '</td><td>' + esc(cc.clube) + '</td></tr>'), [0, 1]), true)
+    : painel('', '', vazio('Nenhuma copa ainda'), true);
   const feitas = conquistasFeitas(), total = CONQUISTAS.length;
-  const m = S.f.marcos || novosMarcos();
-  const copas = Object.keys(m.copas || {}).reduce((t, k) => t + m.copas[k], 0);
-  let h = '<div class="panel"><div class="hd"><span>SALA DE TROFEUS</span><b>' + feitas + ' DE ' + total + '</b></div>' +
-    '<div class="bd"><div class="bar" style="margin-top:0"><i style="width:' + (feitas / total * 100).toFixed(1) + '%"></i></div>' +
-    '<div class="gap"></div>' +
-    ln('Titulos de liga', String(m.titulos || 0), m.titulos ? 'ok' : '') +
-    ln('Acessos', String(m.acessos || 0), m.acessos ? 'ok' : '') +
-    ln('Rebaixamentos', String(m.quedas || 0), m.quedas ? 'neg' : '') +
-    ln('Copas vencidas', String(copas), copas ? 'gd' : '') +
-    ln('Vendas com lucro', String(m.vendasLucro || 0), '', m.maiorLucro > 0 ? 'melhor saida: ' + moeda(m.maiorLucro) : '') +
-    '</div></div>';
+  h += sec('sala de trofeus', feitas + ' de ' + total) +
+    painel('', '', '<div class="bar" style="margin-top:2px"><i style="width:' + (feitas / total * 100).toFixed(1) + '%"></i></div>');
   ['ouro', 'prata', 'bronze'].forEach(t => {
     const its = CONQUISTAS.filter(k => k.t === t);
     const n = its.filter(k => S.f.conquistas[k.id]).length;
@@ -3065,6 +3076,7 @@ function relConquistas() {
   });
   return h;
 }
+
 function relCarteira() {
   const lista = meus();
   const ativos = lista.map(a => ({ a: a, c: S.clubes[a.id], v: valorMercado(a, S.clubes[a.id]).liquido }));
@@ -3085,7 +3097,7 @@ function relCarteira() {
       seg2.map(x => ln(x[0], moeda(x[1]), 'ok')).join('') +
       ln('Divida do fundo', moeda(-S.f.divida), S.f.divida > 0 ? 'neg' : '') +
       lnTot('Patrimonio liquido', moeda(pat), 'ok'));
-  h += sec('participacao por ativo', lista.length + ' clube' + (lista.length === 1 ? '' : 's'));
+  h += sec('participacao por ativo', lista.length + ' na carteira');
   if (!lista.length) h += painel('', '', vazio('Sem clubes no portfolio'), true);
   else {
     h += painel('', '', tabela(['Ativo', 'Valor', '% carteira', 'Projeto'],
@@ -3120,31 +3132,6 @@ function relCarteira() {
         ln('Saidas com lucro', lucro + ' de ' + arq.length, lucro ? 'ok' : '') +
         lnTot('Resultado acumulado das vendas', moeda(soma), soma >= 0 ? 'ok' : 'neg'));
   }
-  return h;
-}
-function relAtivos() {
-  const lista = meus();
-  if (!lista.length) return painel('', '', vazio('Sem clubes no portfolio'), true);
-  if (UI.relClube === null || !ehMeu(UI.relClube)) UI.relClube = lista[0].id;
-  const a = ativo(UI.relClube), c = S.clubes[UI.relClube], b = balanco(a);
-  let h = trocador(listaAtivos(), UI.relClube, 'relativo');
-  h += '<div class="panel"><div class="hd"><span>' + esc(c.nome) + '</span><b>' + esc(DIVS[c.div]) + '</b></div>' +
-    '<div class="stats c3">' +
-    celula('Valor hoje', moeda(valorMercado(a, c).liquido), 'compra: ' + moeda(a.compra.preco)) +
-    celula('Investido', moeda(b.investido), 'compra mais aportes', 'neg') +
-    celula('Projeto', sinal(b.resultado), b.resultado >= 0 ? 'lucro' : 'prejuizo', b.resultado >= 0 ? 'ok' : 'neg') +
-    '</div></div>';
-  const hist = a.hist || [];
-  if (hist.length < 1) return h + '<div class="gap"></div>' + painel('', '', vazio('Os graficos deste ativo aparecem apos a primeira temporada'), true);
-  h += sec('valor do ativo') +
-    painel('', '', '<div class="pw">' + svgLinha([{ dados: hist.map(x => ({ l: 'T' + x.t, v: x.valor })) }], curto, 'gav') + '</div>', true);
-  h += sec('receita contra despesa') +
-    painel('', '', '<div class="pw">' + svgDuplas(hist.map(x => ({ l: 'T' + x.t, a: x.rec, b: x.des })), curto) + '</div>' +
-      legenda([['Receita', 'var(--ac)'], ['Despesa', '#3A4B5C']]), true);
-  h += sec('campanha por temporada') +
-    painel('', '', tabela(['Temp', 'Divisao', 'Pos', 'Saldo', 'Valor'],
-      hist.slice().reverse().map(x => '<tr><td><span class="nm">T' + x.t + '</span></td><td>' + esc(x.div) + '</td><td>' + x.pos + '</td>' +
-        '<td class="' + (x.saldo >= 0 ? 'ok' : 'neg') + '">' + moeda(x.saldo) + '</td><td>' + moeda(x.valor) + '</td></tr>')), true);
   return h;
 }
 function relEventos() {
