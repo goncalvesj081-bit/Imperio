@@ -1123,7 +1123,7 @@ function aceitarProposta(k) {
   r.clubes.push(pr.id);
   c.dono = r.id;
   S.f.reputacao = clamp(S.f.reputacao + (b.resultado > 0 ? 4 : 1), 0, 100);
-  arquivarAtivo(a, c, pr.valor, b.resultado, r.nome);
+  arquivarAtivo(a, c, pr.valor + a.caixa, b.resultado, r.nome);
   a.caixa = 0;
   a.punicao = null; a.aviso = 0;
   delete a.compra; delete a.hist;
@@ -1956,7 +1956,7 @@ const UI = {
   divLiga: null, visaoLiga: 'tabela',
   mercDiv: 'alc', mercOrd: 'preco', mercFaixa: 'todas', mercBusca: '', mercCrise: false, mercDD: false, mercLivre: false,
   abaMercado: 'clubes', mercLimite: 18, alvo: null,
-  sinOrigem: null, sinPontos: 2, sinPreco: 'justo', ordEsp: 'conquistas',
+  sinOrigem: null, sinPontos: 2, sinPreco: 'justo', ordEsp: 'nota',
   alavFiltro: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'fundo', relClube: null, copaAberta: {},
   criaDiv: 'todas', criaOrd: 'preco', nome: '', foco: null
 };
@@ -2186,9 +2186,10 @@ function telaClubes() {
     '<div><span>Caixa</span><b>' + moeda(a.caixa) + '</b></div>' +
     '<div><span>Divida</span><b class="' + (a.divida > 0 ? 'neg' : 'mut') + '">' + moeda(a.divida) + '</b></div></div></div>';
   h += '<div style="height:11px"></div>' +
-    seg(UI.abaClube, [['painel', 'Painel'], ['investir', 'Investir'], ['fin', 'Financas'], ['bal', 'Balanco']], 'abaclube');
+    seg(UI.abaClube, [['painel', 'Painel'], ['investir', 'Investir'], ['sinergia', 'Sinergia'], ['fin', 'Financas'], ['bal', 'Balanco']], 'abaclube');
   if (UI.abaClube === 'painel') h += painelClube(a, c, pos);
   else if (UI.abaClube === 'investir') h += investirClube(a, c);
+  else if (UI.abaClube === 'sinergia') h += sinergiaClube(a, c);
   else if (UI.abaClube === 'fin') h += financasClube(a, c, pos);
   else h += balancoClube(a, c);
   return h + '</div>';
@@ -2291,7 +2292,6 @@ function investirClube(a, c) {
         '<span class="d">' + moeda(L.custo) + '<span>' + st + '</span></span></div>';
     }).join(''), true);
   }
-  h += sinergiaPainel(a, c);
   h += sec('tesouraria do clube') +
     painel('', '', ln('Caixa do clube', moeda(a.caixa)) + ln('Caixa do fundo', moeda(S.f.caixa)) +
       ln('Divida do clube', moeda(a.divida), a.divida > 0 ? 'neg' : '', a.divida > 0 ? 'juros de ' + moeda(a.divida * 0.11) + ' por ano' : '') +
@@ -2301,13 +2301,47 @@ function investirClube(a, c) {
       (a.divida > 0 ? '<div class="gap"></div><button class="btn warn sm" data-a="quitarclube">Quitar divida do clube</button>' : ''));
   return h;
 }
+function sinergiaClube(dest, cd) {
+  let h = '';
+  const feitas = (S.sinergias || []).filter(x => x.origem === dest.id || x.destino === dest.id);
+  const todas = S.sinergias || [];
+  if (S.donos.length < 2) {
+    return painel('SINERGIA DO GRUPO', '',
+      '<p class="msg">A sinergia move elenco de um clube seu para outro. Com <b>um clube so</b> nao ha o que mover: ' +
+      'compre um segundo ativo para abrir essa mesa.</p>');
+  }
+  h += painel('COMO FUNCIONA', SIN_TETO + ' PONTOS POR TEMPORADA',
+    '<p class="msg">Um clube cede elenco, o outro recebe e paga por isso. <b>Parte da qualidade se perde na adaptacao</b>, ' +
+    'e o preco praticado passa por auditoria se fugir do valor de mercado. E o clube-celeiro alimentando a vitrine.</p>');
+  h += sec('forca do grupo', S.donos.length + ' clubes') +
+    painel('', '', tabela(['Clube', 'Liga', 'Forca'], meus().slice()
+      .sort((x, y) => S.clubes[y.id].nivel - S.clubes[x.id].nivel)
+      .map(x => {
+        const cx = S.clubes[x.id];
+        return '<tr class="' + (x.id === dest.id ? 'eu' : '') + '"><td class="l"><span class="nm">' + esc(cx.nome) +
+          (x.id === dest.id ? ' <span class="ok" style="font-weight:400">(recebe)</span>' : '') + '</span></td>' +
+          '<td>' + esc(DIVS[cx.div]) + '</td><td>' + cx.nivel + '</td></tr>';
+      })), true);
+  if (todas.length) {
+    h += sec('operacoes desta temporada', todas.length + ' fechada' + (todas.length === 1 ? '' : 's')) +
+      painel('', '', todas.map(x =>
+        ln(S.clubes[x.origem].nome + ' para ' + S.clubes[x.destino].nome,
+          x.pontos + ' pontos por ' + moeda(x.preco),
+          Math.abs(x.preco / Math.max(1, x.justo) - 1) > 0.25 ? 'gd' : '',
+          'chegaram ' + x.ganho + ' apos a adaptacao' +
+          (Math.abs(x.preco / Math.max(1, x.justo) - 1) > 0.25 ? ' - preco fora da faixa, sujeito a auditoria' : ''))).join(''));
+  }
+  const bloq = podeSinergia();
+  if (bloq) return h + sec('nova operacao') + painel('', '', '<p class="msg">' + esc(bloq) + '.</p>');
+  return h + sinergiaPainel(dest, cd);
+}
 function sinergiaPainel(dest, cd) {
   if (S.donos.length < 2) return '';
   const outros = meus().filter(x => x.id !== dest.id);
   if (UI.sinOrigem === null || !ehMeu(UI.sinOrigem) || UI.sinOrigem === dest.id) UI.sinOrigem = outros[0].id;
   const orig = ativo(UI.sinOrigem), co = S.clubes[UI.sinOrigem];
   const disp = pontosDisponiveis();
-  let h = sec('sinergia do grupo', disp + ' de ' + SIN_TETO + ' pontos livres');
+  let h = sec('nova operacao', disp + ' de ' + SIN_TETO + ' pontos livres');
   if (disp <= 0) {
     return h + painel('', '', '<p class="msg">O teto de <b>' + SIN_TETO + ' pontos por temporada</b> ja foi usado. ' +
       'A federacao nao aceita mais movimentacao interna neste ano.</p>');
@@ -2323,8 +2357,6 @@ function sinergiaPainel(dest, cd) {
   const novoD = Math.round(clamp(38 + (dest.elenco + ganho) * 0.56 + TECNICOS[dest.tecnico || 0].b, 38, 96));
   const falta = preco + taxa > dest.caixa + S.f.caixa;
   h += painel('', '',
-    '<p class="msg" style="margin-bottom:10px">Mover elenco de um clube seu para outro. Quem recebe paga quem cede, ' +
-    'e parte da qualidade se perde na adaptacao.</p>' +
     '<div class="mono mut" style="font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:5px">Quem cede</div>' +
     trocador(outros.map(x => ({ id: x.id, nome: S.clubes[x.id].nome, sub: 'forca ' + S.clubes[x.id].nivel })), UI.sinOrigem, 'sinorig', true) +
     '<div class="mono mut" style="font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:5px">Pontos de elenco</div>' +
@@ -2904,7 +2936,8 @@ function todosOsAtivos() {
       div: DIVS[c.div], divCompra: DIVS[a.compra.div === undefined ? c.div : a.compra.div],
       desde: a.compra.temp, ate: null, hist: a.hist || [],
       preco: a.compra.preco, valor: valorMercado(a, c).liquido,
-      resultado: balanco(a).resultado, nivelCompra: a.compra.nivel, nivelAgora: c.nivel
+      resultado: balanco(a).resultado, nivelCompra: a.compra.nivel, nivelAgora: c.nivel,
+      investido: balanco(a).investido, retorno: balanco(a).retorno, aporte: a.aporte || 0
     };
   });
   (S.f.arquivo || []).forEach((x, i) => lista.push({
@@ -2912,13 +2945,68 @@ function todosOsAtivos() {
     div: x.divSaida, divCompra: x.divCompra,
     desde: x.tempCompra, ate: x.tempSaida, hist: x.hist || [],
     preco: x.preco, valor: x.venda, resultado: x.resultado,
-    nivelCompra: x.nivelCompra, nivelAgora: x.nivelSaida, comprador: x.comprador
+    nivelCompra: x.nivelCompra, nivelAgora: x.nivelSaida, comprador: x.comprador,
+    investido: x.preco + (x.aporte || 0), retorno: x.venda + (x.retirado || 0), aporte: x.aporte || 0
   }));
   lista.forEach(x => { x.r = resumoCampanha(x.hist); });
   return lista;
 }
+/* =========================================================
+   COEFICIENTE DE INVESTIMENTO
+   tres notas de 0 a 100 que viram uma so
+   ========================================================= */
+function coeficientes(x) {
+  const r = x.r, temps = Math.max(1, r.temps);
+  /* 1. rendimento esportivo, ajustado pela forca das ligas onde jogou */
+  let repSoma = 0;
+  (x.hist || []).forEach(h => {
+    const d = DIVS.indexOf(h.div);
+    repSoma += d >= 0 ? LIGAS[d].rep : 20;
+  });
+  const repMedia = r.temps ? repSoma / r.temps : 20;
+  const fatorLiga = 0.75 + clamp(repMedia / 78, 0, 1) * 0.5;
+  const conqPorTemp = (r.titulos * 9 + r.tacas * 11 + r.acessos * 7 - r.quedas * 8) / temps;
+  const esporte = clamp((r.aprov * 62 + conqPorTemp * 3.2) * fatorLiga, 0, 100);
+  /* 2. valorizacao anualizada sobre o capital que entrou */
+  const investido = Math.max(1, x.investido || x.preco);
+  const mult = Math.max(0.02, (x.retorno || x.valor) / investido);
+  const taxa = Math.pow(mult, 1 / temps) - 1;
+  const valor = clamp(50 + taxa * 220, 0, 100);
+  /* 3. custo: margem operacional e quanto aporte extra o clube exigiu */
+  let receita = 0, saldos = 0;
+  (x.hist || []).forEach(h => { receita += h.rec || 0; saldos += h.saldo || 0; });
+  const margem = receita ? saldos / receita : 0;
+  const aporteRel = clamp((x.aporte || 0) / Math.max(1, x.preco), 0, 3);
+  const custo = clamp(55 + margem * 130 - aporteRel * 12, 0, 100);
+  const nota = esporte * 0.40 + valor * 0.35 + custo * 0.25;
+  return { esporte: esporte, valor: valor, custo: custo, nota: nota, margem: margem, taxa: taxa, fatorLiga: fatorLiga };
+}
+/* ordena e garante que nao existam duas notas iguais na tabela */
+function rankingInvestimento() {
+  const lista = todosOsAtivos();
+  lista.forEach(x => { x.coef = coeficientes(x); });
+  lista.sort((a, b) =>
+    (b.r.temps > 0) - (a.r.temps > 0) ||
+    b.coef.nota - a.coef.nota ||
+    b.coef.esporte - a.coef.esporte ||
+    b.coef.valor - a.coef.valor ||
+    b.resultado - a.resultado ||
+    (a.nome < b.nome ? -1 : 1));
+  let teto = Infinity;
+  lista.forEach((x, i) => {
+    let n = Math.round(x.coef.nota * 100) / 100;
+    if (n >= teto) n = Math.round((teto - 0.01) * 100) / 100;
+    x.nota = Math.max(0, n);
+    teto = x.nota;
+    x.posInv = i + 1;
+  });
+  return lista;
+}
+function nota2(n) { return n.toFixed(2).replace('.', ','); }
 function modalAtivoHistorico(chave) {
-  const x = todosOsAtivos().filter(y => y.chave === chave)[0];
+  const rk = rankingInvestimento();
+  const x = rk.filter(y => y.chave === chave)[0];
+  if (x) x.totalInv = rk.length;
   if (!x) return;
   const r = x.r;
   const periodo = 'T' + x.desde + (x.ate ? ' a T' + x.ate : ' ate hoje');
@@ -2930,6 +3018,13 @@ function modalAtivoHistorico(chave) {
     celula('Aproveitamento', pct(r.aprov), r.j + ' jogos', r.aprov >= 0.5 ? 'ok' : '') +
     celula('Projeto', sinal(x.resultado), x.atual ? 'se vender agora' : 'realizado', x.resultado >= 0 ? 'ok' : 'neg') +
     '</div></div><div class="gap"></div>' +
+    (x.nota !== undefined ? painel('NOTA DO INVESTIMENTO', x.posInv + ' DE ' + x.totalInv,
+      '<div class="num ok" style="font-size:28px;font-weight:600;line-height:1">' + nota2(x.nota) + '</div>' +
+      '<div class="cap" style="font-family:var(--data);font-size:8.5px;letter-spacing:1.6px;color:var(--muted2);margin:4px 0 10px">COEFICIENTE GERAL</div>' +
+      mtr('Rendimento esportivo', x.coef.esporte, null, 'peso 40% - aproveitamento, titulos e a forca das ligas onde jogou', '', Math.round(x.coef.esporte)) +
+      mtr('Valorizacao', x.coef.valor, null, 'peso 35% - ' + (x.coef.taxa >= 0 ? '+' : '') + (x.coef.taxa * 100).toFixed(1).replace('.', ',') + '% por temporada sobre o capital investido', 'gd', Math.round(x.coef.valor)) +
+      mtr('Custo', x.coef.custo, null, 'peso 25% - margem de ' + pct(x.coef.margem) + ' e ' + moeda(x.aporte || 0) + ' de aporte extra', 'gd', Math.round(x.coef.custo))) +
+      '<div class="gap"></div>' : '') +
     painel('CAMPANHA', '', 
       ln('Titulos de liga', String(r.titulos), r.titulos ? 'ok' : '') +
       ln('Copas vencidas', String(r.tacas), r.tacas ? 'gd' : '', r.copas.map(c => 'T' + c.t + ' ' + c.nome).join(', ')) +
@@ -2955,28 +3050,39 @@ function modalAtivoHistorico(chave) {
 
 /* ---------------- clubes: consolidado e ficha de cada ativo ---------------- */
 function relClubes() {
-  const todos = todosOsAtivos();
+  const todos = rankingInvestimento();
   let h = '';
   if (!todos.length) return painel('', '', vazio('Nenhum clube passou pelo fundo ainda'), true);
   const ord = todos.slice().sort((x, y) =>
     UI.ordEsp === 'aprov' ? y.r.aprov - x.r.aprov :
-      UI.ordEsp === 'temps' ? y.r.temps - x.r.temps :
-        UI.ordEsp === 'resultado' ? y.resultado - x.resultado :
-          (y.r.titulos + y.r.tacas + y.r.acessos) - (x.r.titulos + x.r.tacas + x.r.acessos));
-  h += sec('todos os clubes do fundo', todos.length + ' no total') +
+      UI.ordEsp === 'esporte' ? y.coef.esporte - x.coef.esporte :
+        UI.ordEsp === 'valorizacao' ? y.coef.valor - x.coef.valor :
+          UI.ordEsp === 'custo' ? y.coef.custo - x.coef.custo :
+            UI.ordEsp === 'temps' ? y.r.temps - x.r.temps :
+              UI.ordEsp === 'resultado' ? y.resultado - x.resultado :
+                x.posInv - y.posInv);
+  const lider = todos[0];
+  h += '<div class="panel"><div class="hd"><span>MELHOR INVESTIMENTO</span><b>' + todos.length + ' CLUBE' + (todos.length === 1 ? '' : 'S') + '</b></div>' +
+    '<div class="bd" style="padding:11px 11px 0"><div style="font-family:var(--disp);font-size:18px;text-transform:uppercase;line-height:1">' + esc(lider.nome) + '</div>' +
+    '<div class="mono mut" style="font-size:10px;margin-top:4px">nota ' + nota2(lider.nota) + ' - T' + lider.desde + (lider.ate ? ' a T' + lider.ate : ' ate hoje') + '</div></div>' +
+    '<div class="stats c3" style="border-top:1px solid var(--line);margin-top:10px">' +
+    celula('Esporte', String(Math.round(lider.coef.esporte)), 'peso 40%') +
+    celula('Valorizacao', String(Math.round(lider.coef.valor)), 'peso 35%') +
+    celula('Custo', String(Math.round(lider.coef.custo)), 'peso 25%') +
+    '</div></div>';
+  h += sec('ranking de investimento', 'nota de 0 a 100') +
     '<div class="filtros f1">' + campo('Ordenar por', selHTML('ordesp', UI.ordEsp,
-      [['conquistas', 'Mais conquistas'], ['aprov', 'Melhor aproveitamento'], ['temps', 'Mais temporadas'], ['resultado', 'Melhor resultado']])) + '</div>' +
-    painel('', '', tabela(['Clube', 'Temp', 'Aprov', 'Conquistas'], ord.map(x =>
-      '<tr class="cl" data-a="histativo:' + x.chave + '"><td class="l"><span class="nm">' + esc(x.nome) +
+      [['nota', 'Nota geral'], ['esporte', 'Rendimento esportivo'], ['valorizacao', 'Valorizacao'], ['custo', 'Menor custo'],
+       ['aprov', 'Aproveitamento'], ['temps', 'Mais temporadas'], ['resultado', 'Melhor resultado']])) + '</div>' +
+    painel('', '', tabela(['#', 'Clube', 'Nota'], ord.map(x =>
+      '<tr class="cl" data-a="histativo:' + x.chave + '"><td class="l num" style="width:24px">' + x.posInv + '</td>' +
+      '<td class="l"><span class="nm">' + esc(x.nome) +
       (x.atual ? '' : ' <span class="mut" style="font-weight:400">(vendido)</span>') + '</span>' +
-      '<span class="sub">T' + x.desde + (x.ate ? ' a T' + x.ate : ' ate hoje') + ' - ' + esc(x.div) + '</span></td>' +
-      '<td>' + x.r.temps + '</td><td class="' + (x.r.aprov >= 0.5 ? 'ok' : '') + '">' + pct(x.r.aprov) + '</td>' +
-      '<td>' + (x.r.titulos ? '<span class="ok">' + x.r.titulos + 'L</span> ' : '') +
-      (x.r.tacas ? '<span class="gd">' + x.r.tacas + 'C</span> ' : '') +
-      (x.r.acessos ? '<span class="ok">' + x.r.acessos + 'A</span> ' : '') +
-      (x.r.quedas ? '<span class="neg">' + x.r.quedas + 'R</span>' : '') +
-      (x.r.titulos + x.r.tacas + x.r.acessos + x.r.quedas === 0 ? '<span class="mut">-</span>' : '') + '</td></tr>')), true) +
-    '<p class="msg" style="margin-top:9px">L de liga, C de copa, A de acesso, R de rebaixamento. Toque para a ficha completa.</p>';
+      '<span class="sub">esp ' + Math.round(x.coef.esporte) + ' - val ' + Math.round(x.coef.valor) + ' - cus ' + Math.round(x.coef.custo) +
+      (x.r.temps ? ' - ' + x.r.temps + ' temp' : ' - sem temporada') + '</span></td>' +
+      '<td class="num" style="font-size:15px;font-weight:600">' + nota2(x.nota) + '</td></tr>'), [0, 1]), true) +
+    '<p class="msg" style="margin-top:9px">A nota junta <b>rendimento esportivo</b> (aproveitamento, titulos e a forca das ligas), ' +
+    '<b>valorizacao</b> por temporada sobre o capital investido e <b>custo</b> (margem operacional e aporte extra). Toque para abrir a ficha.</p>';
 
   const lista = meus();
   if (!lista.length) return h;
