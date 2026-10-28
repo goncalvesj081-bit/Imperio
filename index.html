@@ -765,7 +765,6 @@ function novoFundo(nome, idClube) {
   S.ciclo = novoCiclo();
   S.propostas = [];
   S.copaPremio = {};
-  S.sinergias = [];
   S.f.marcos = novosMarcos();
   gerarCalendarios();
   invalidarTabelas();
@@ -1231,10 +1230,7 @@ function encerrarTemporada() {
         noticia(c.nome + ' fechou no vermelho e rolou ' + moeda(resto) + ' para a divida.', 'r');
       }
     }
-    const extra = Math.min(a.receitaExtra || 0, rec.total * 0.25);
-    linha.receitaExtra = a.receitaExtra || 0;
-    linha.extraContada = extra;
-    const receitaAno = rec.total + premioCopa + extra;
+    const receitaAno = rec.total + premioCopa;
     const fp = fpfDe(a, c, receitaAno);
     linha.fpf = fp.ratio;
     linha.punicaoCumprida = a.punicao ? a.punicao.pontos : 0;
@@ -1304,8 +1300,7 @@ function encerrarTemporada() {
     });
     if (a.hist.length > 12) a.hist.shift();
   });
-  /* 6. auditoria das operacoes internas e eventos da temporada */
-  auditarSinergias(rel);
+  /* 6. eventos da temporada */
   sortearEventos(rel);
   /* 7. resto do mundo se ajusta */
   S.clubes.forEach(c => {
@@ -1360,8 +1355,6 @@ function encerrarTemporada() {
   REF = calcularRefs(S.clubes);
   gerarCalendarios();
   S.copaPremio = {};
-  S.sinergias = [];
-  meus().forEach(a => { a.receitaExtra = 0; });
   S.copas = montarCopas();
   rel.conquistas = verificarConquistas();
   S.relatorio = rel;
@@ -1421,7 +1414,6 @@ function carregar() {
     REF = calcularRefs(S.clubes);
     if (!S.rivais) criarRivais(); else completarRivais();
     if (!S.copaPremio) S.copaPremio = {};
-    if (!S.sinergias) S.sinergias = [];
     if (!S.f.arquivo) S.f.arquivo = [];
     if (!S.f.conquistas) S.f.conquistas = {};
     if (!S.f.marcos) S.f.marcos = novosMarcos();
@@ -1859,96 +1851,6 @@ function temRelatorio(id) { return !!S.dd[id] || redeCobre(id); }
 function veCrise(id) { return temRelatorio(id) || alcanceRede() >= 4; }
 
 /* =========================================================
-   SINERGIA DO GRUPO
-   ========================================================= */
-const SIN_TETO = 6;          /* pontos de elenco movidos por temporada */
-const SIN_TAXA = 0.06;       /* intermediacao que sai do fundo de vez */
-const SIN_PRECOS = [
-  { id: 'baixo', n: 'Abaixo do valor', f: 0.35, d: 'Poupa o caixa de quem recebe' },
-  { id: 'justo', n: 'Valor de mercado', f: 1, d: 'Nao levanta suspeita' },
-  { id: 'alto', n: 'Acima do valor', f: 2, d: 'Infla a receita de quem vende' }
-];
-function pontosUsados() { return (S.sinergias || []).reduce((t, s) => t + s.pontos, 0); }
-function pontosDisponiveis() { return Math.max(0, SIN_TETO - pontosUsados()); }
-function rendimentoSinergia(orig, dest) {
-  const co = S.clubes[orig.id], cd = S.clubes[dest.id];
-  let r = 0.55 + dest.estrutura / 100 * 0.30 + dest.gestao / 100 * 0.15;
-  if (ECO[cd.div] < ECO[co.div]) r *= 0.85;
-  return clamp(r, 0.4, 1);
-}
-/* preco de mercado do jogador: media entre o que ele vale onde esta e o que
-   custaria ao clube que recebe, com desconto por ser operacao interna */
-function valorJustoSinergia(orig, dest, pontos) {
-  const co = S.clubes[orig.id], cd = S.clubes[dest.id];
-  const base = custoPonto(dest, cd) * 0.45 + custoPonto(orig, co) * 0.55;
-  return Math.max(2e5, Math.round(base * pontos * 0.8 / 1e5) * 1e5);
-}
-function riscoAuditoria(desvio) {
-  return clamp(0.12 + Math.abs(desvio - 1) * 0.55 - S.f.reputacao / 320, 0.04, 0.85);
-}
-function podeSinergia() {
-  if (S.donos.length < 2) return 'A sinergia precisa de pelo menos dois clubes no grupo';
-  if (S.fase !== 'pre') return 'Movimentacao interna so na pre-temporada';
-  if (pontosDisponiveis() <= 0) return 'Teto de ' + SIN_TETO + ' pontos ja usado nesta temporada';
-  return null;
-}
-function transferirForca(idOrigem, idDestino, pontos, tipoPreco) {
-  const bloq = podeSinergia();
-  if (bloq) return bloq;
-  if (idOrigem === idDestino) return 'Escolha dois clubes diferentes';
-  if (!ehMeu(idOrigem) || !ehMeu(idDestino)) return 'Os dois clubes precisam ser do fundo';
-  const orig = ativo(idOrigem), dest = ativo(idDestino);
-  const co = S.clubes[idOrigem], cd = S.clubes[idDestino];
-  pontos = clamp(Math.round(pontos), 1, pontosDisponiveis());
-  if (orig.elenco - pontos < 6) return 'O ' + co.nome + ' ficaria sem elenco para jogar';
-  if (dest.elenco >= 99) return 'O ' + cd.nome + ' esta no teto de elenco';
-  const P = SIN_PRECOS.filter(x => x.id === tipoPreco)[0] || SIN_PRECOS[1];
-  const justo = valorJustoSinergia(orig, dest, pontos);
-  const preco = Math.round(justo * P.f);
-  const taxa = Math.round(preco * SIN_TAXA);
-  /* quem recebe o reforco paga; a taxa sai do fundo */
-  const err = pagar(dest, preco + taxa);
-  if (err) return err;
-  orig.caixa += preco;
-  orig.receitaExtra = (orig.receitaExtra || 0) + preco;
-  const rend = rendimentoSinergia(orig, dest);
-  const ganho = Math.round(pontos * rend * 10) / 10;
-  orig.elenco = Math.round((orig.elenco - pontos) * 10) / 10;
-  dest.elenco = clamp(Math.round((dest.elenco + ganho) * 10) / 10, 0, 100);
-  sincronizar(orig); sincronizar(dest);
-  S.sinergias.push({
-    origem: idOrigem, destino: idDestino, pontos: pontos, ganho: ganho,
-    preco: preco, justo: justo, taxa: taxa, temp: S.temporada
-  });
-  noticia(co.nome + ' cedeu ' + pontos + ' de elenco ao ' + cd.nome + ' por ' + moeda(preco) + '.', 'a');
-  salvar();
-  return null;
-}
-/* auditoria das operacoes entre clubes do mesmo grupo, no fechamento */
-function auditarSinergias(rel) {
-  rel.auditorias = [];
-  (S.sinergias || []).forEach(s => {
-    const desvio = s.preco / Math.max(1, s.justo);
-    if (Math.abs(desvio - 1) <= 0.25) return;
-    if (Math.random() > riscoAuditoria(desvio)) return;
-    const multa = Math.round(Math.abs(s.preco - s.justo) * 0.8);
-    const doCaixa = Math.min(S.f.caixa, multa);
-    S.f.caixa -= doCaixa;
-    if (multa > doCaixa) S.f.divida += multa - doCaixa;
-    S.f.reputacao = clamp(S.f.reputacao - 8, 0, 100);
-    const linha = {
-      origem: S.clubes[s.origem].nome, destino: S.clubes[s.destino].nome,
-      preco: s.preco, justo: s.justo, multa: multa,
-      tipo: desvio > 1 ? 'acima' : 'abaixo'
-    };
-    rel.auditorias.push(linha);
-    noticia('Auditoria reprovou a transacao entre ' + linha.origem + ' e ' + linha.destino +
-      ': preco ' + linha.tipo + ' do valor de mercado. Multa de ' + moeda(multa) + '.', 'r');
-  });
-  return rel.auditorias;
-}
-
-/* =========================================================
    INTERFACE
    ========================================================= */
 const UI = {
@@ -1956,7 +1858,7 @@ const UI = {
   divLiga: null, visaoLiga: 'tabela',
   mercDiv: 'alc', mercOrd: 'preco', mercFaixa: 'todas', mercBusca: '', mercCrise: false, mercDD: false, mercLivre: false,
   abaMercado: 'clubes', mercLimite: 18, alvo: null,
-  sinOrigem: null, sinPontos: 2, sinPreco: 'justo', ordEsp: 'nota',
+  ordEsp: 'nota',
   alavFiltro: 'todas', relFiltro: 'todas', relDet: {}, abaRel: 'fundo', relClube: null, copaAberta: {},
   criaDiv: 'todas', criaOrd: 'preco', nome: '', foco: null
 };
@@ -2186,10 +2088,9 @@ function telaClubes() {
     '<div><span>Caixa</span><b>' + moeda(a.caixa) + '</b></div>' +
     '<div><span>Divida</span><b class="' + (a.divida > 0 ? 'neg' : 'mut') + '">' + moeda(a.divida) + '</b></div></div></div>';
   h += '<div style="height:11px"></div>' +
-    seg(UI.abaClube, [['painel', 'Painel'], ['investir', 'Investir'], ['sinergia', 'Sinergia'], ['fin', 'Financas'], ['bal', 'Balanco']], 'abaclube');
+    seg(UI.abaClube, [['painel', 'Painel'], ['investir', 'Investir'], ['fin', 'Financas'], ['bal', 'Balanco']], 'abaclube');
   if (UI.abaClube === 'painel') h += painelClube(a, c, pos);
   else if (UI.abaClube === 'investir') h += investirClube(a, c);
-  else if (UI.abaClube === 'sinergia') h += sinergiaClube(a, c);
   else if (UI.abaClube === 'fin') h += financasClube(a, c, pos);
   else h += balancoClube(a, c);
   return h + '</div>';
@@ -2299,83 +2200,6 @@ function investirClube(a, c) {
       '<button class="btn gh sm" data-a="aportar" ' + (S.f.caixa < 1e5 ? 'disabled' : '') + '>Aportar</button>' +
       '<button class="btn sec2 sm" data-a="retirar" ' + (a.caixa < 1e5 ? 'disabled' : '') + '>Sacar dividendo</button></div>' +
       (a.divida > 0 ? '<div class="gap"></div><button class="btn warn sm" data-a="quitarclube">Quitar divida do clube</button>' : ''));
-  return h;
-}
-function sinergiaClube(dest, cd) {
-  let h = '';
-  const feitas = (S.sinergias || []).filter(x => x.origem === dest.id || x.destino === dest.id);
-  const todas = S.sinergias || [];
-  if (S.donos.length < 2) {
-    return painel('SINERGIA DO GRUPO', '',
-      '<p class="msg">A sinergia move elenco de um clube seu para outro. Com <b>um clube so</b> nao ha o que mover: ' +
-      'compre um segundo ativo para abrir essa mesa.</p>');
-  }
-  h += painel('COMO FUNCIONA', SIN_TETO + ' PONTOS POR TEMPORADA',
-    '<p class="msg">Um clube cede elenco, o outro recebe e paga por isso. <b>Parte da qualidade se perde na adaptacao</b>, ' +
-    'e o preco praticado passa por auditoria se fugir do valor de mercado. E o clube-celeiro alimentando a vitrine.</p>');
-  h += sec('forca do grupo', S.donos.length + ' clubes') +
-    painel('', '', tabela(['Clube', 'Liga', 'Forca'], meus().slice()
-      .sort((x, y) => S.clubes[y.id].nivel - S.clubes[x.id].nivel)
-      .map(x => {
-        const cx = S.clubes[x.id];
-        return '<tr class="' + (x.id === dest.id ? 'eu' : '') + '"><td class="l"><span class="nm">' + esc(cx.nome) +
-          (x.id === dest.id ? ' <span class="ok" style="font-weight:400">(recebe)</span>' : '') + '</span></td>' +
-          '<td>' + esc(DIVS[cx.div]) + '</td><td>' + cx.nivel + '</td></tr>';
-      })), true);
-  if (todas.length) {
-    h += sec('operacoes desta temporada', todas.length + ' fechada' + (todas.length === 1 ? '' : 's')) +
-      painel('', '', todas.map(x =>
-        ln(S.clubes[x.origem].nome + ' para ' + S.clubes[x.destino].nome,
-          x.pontos + ' pontos por ' + moeda(x.preco),
-          Math.abs(x.preco / Math.max(1, x.justo) - 1) > 0.25 ? 'gd' : '',
-          'chegaram ' + x.ganho + ' apos a adaptacao' +
-          (Math.abs(x.preco / Math.max(1, x.justo) - 1) > 0.25 ? ' - preco fora da faixa, sujeito a auditoria' : ''))).join(''));
-  }
-  const bloq = podeSinergia();
-  if (bloq) return h + sec('nova operacao') + painel('', '', '<p class="msg">' + esc(bloq) + '.</p>');
-  return h + sinergiaPainel(dest, cd);
-}
-function sinergiaPainel(dest, cd) {
-  if (S.donos.length < 2) return '';
-  const outros = meus().filter(x => x.id !== dest.id);
-  if (UI.sinOrigem === null || !ehMeu(UI.sinOrigem) || UI.sinOrigem === dest.id) UI.sinOrigem = outros[0].id;
-  const orig = ativo(UI.sinOrigem), co = S.clubes[UI.sinOrigem];
-  const disp = pontosDisponiveis();
-  let h = sec('nova operacao', disp + ' de ' + SIN_TETO + ' pontos livres');
-  if (disp <= 0) {
-    return h + painel('', '', '<p class="msg">O teto de <b>' + SIN_TETO + ' pontos por temporada</b> ja foi usado. ' +
-      'A federacao nao aceita mais movimentacao interna neste ano.</p>');
-  }
-  const pontos = clamp(UI.sinPontos, 1, Math.min(disp, Math.max(1, Math.floor(orig.elenco - 6))));
-  const rend = rendimentoSinergia(orig, dest);
-  const ganho = Math.round(pontos * rend * 10) / 10;
-  const justo = valorJustoSinergia(orig, dest, pontos);
-  const P = SIN_PRECOS.filter(x => x.id === UI.sinPreco)[0] || SIN_PRECOS[1];
-  const preco = Math.round(justo * P.f), taxa = Math.round(preco * SIN_TAXA);
-  const risco = Math.abs(P.f - 1) <= 0.25 ? 0 : riscoAuditoria(P.f);
-  const novoO = Math.round(clamp(38 + (orig.elenco - pontos) * 0.56 + TECNICOS[orig.tecnico || 0].b, 38, 96));
-  const novoD = Math.round(clamp(38 + (dest.elenco + ganho) * 0.56 + TECNICOS[dest.tecnico || 0].b, 38, 96));
-  const falta = preco + taxa > dest.caixa + S.f.caixa;
-  h += painel('', '',
-    '<div class="mono mut" style="font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:5px">Quem cede</div>' +
-    trocador(outros.map(x => ({ id: x.id, nome: S.clubes[x.id].nome, sub: 'forca ' + S.clubes[x.id].nivel })), UI.sinOrigem, 'sinorig', true) +
-    '<div class="mono mut" style="font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:5px">Pontos de elenco</div>' +
-    '<div class="toggles">' + [1, 2, 4, 6].filter(n => n <= disp).map(n =>
-      '<button class="tg ' + (pontos === n ? 'on' : '') + '" data-a="sinpts:' + n + '">' + n + '</button>').join('') + '</div>' +
-    '<div class="mono mut" style="font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:5px">Preco da operacao</div>' +
-    '<div class="toggles">' + SIN_PRECOS.map(x =>
-      '<button class="tg ' + (P.id === x.id ? 'on' : '') + '" data-a="sinpre:' + x.id + '">' + esc(x.n) + '</button>').join('') + '</div>' +
-    '<div class="ex mono mut" style="font-size:10px;line-height:1.45;margin-bottom:9px">' + esc(P.d) + '</div>' +
-    ln('Forca do ' + co.nome, co.nivel + ' para ' + novoO, novoO < co.nivel ? 'neg' : '') +
-    ln('Forca do ' + cd.nome, cd.nivel + ' para ' + novoD, novoD > cd.nivel ? 'ok' : '') +
-    ln('Rendimento na chegada', pct(rend), rend >= 0.8 ? 'ok' : 'gd', 'estrutura e gestao de quem recebe') +
-    ln('Valor de mercado da operacao', moeda(justo)) +
-    ln('Preco que voce vai praticar', moeda(preco), P.f === 1 ? '' : 'gd') +
-    ln('Taxa de intermediacao', moeda(taxa), 'neg', 'sai do fundo de vez') +
-    (risco ? ln('Risco de auditoria', pct(risco), 'neg', 'multa e queda de reputacao se pegarem') :
-      ln('Risco de auditoria', 'nenhum', 'ok', 'preco dentro da faixa aceita')) +
-    '<div class="gap"></div><button class="btn ' + (risco ? 'warn' : '') + '" data-a="sinergia" ' + (falta ? 'disabled' : '') + '>' +
-    (falta ? 'Sem caixa para a operacao' : 'Fechar a operacao') + '</button>');
   return h;
 }
 function financasClube(a, c, pos) {
@@ -3285,7 +3109,7 @@ function telaRelatorio() {
       : x.subiu ? tag('acesso a ' + x.divNova, 'v')
         : x.desceu ? tag('rebaixado para ' + x.divNova, 'r')
           : tag('segue na ' + x.div, 'n');
-    const receitaTotal = x.rec.total + (x.premioCopa || 0) + (x.receitaExtra || 0);
+    const receitaTotal = x.rec.total + (x.premioCopa || 0);
     let conta;
     if (x.saldo >= 0) conta = 'Arrecadou ' + moeda(receitaTotal) + ' e gastou ' + moeda(x.des.total) + '. A sobra de ' + moeda(x.saldo) + ' entrou no caixa do clube.';
     else if (x.calote) conta = 'Arrecadou ' + moeda(receitaTotal) + ' e gastou ' + moeda(x.des.total) + '. Faltou dinheiro: ' + moeda(x.calote) + ' viraram divida do clube.';
@@ -3319,8 +3143,6 @@ function telaRelatorio() {
         ln('Direitos de TV', moeda(x.rec.tv), 'ok') + ln('Patrocinio', moeda(x.rec.patrocinio), 'ok') +
         ln('Premiacao da liga', moeda(x.rec.premiacao), 'ok', x.pos + 'o lugar') + ln('Vendas da base', moeda(x.rec.vendasBase), 'ok') +
         (x.premioCopa ? ln('Premiacao de copa', moeda(x.premioCopa), 'ok') : '') +
-        (x.receitaExtra ? ln('Venda para clube do grupo', moeda(x.receitaExtra), 'ok',
-          x.extraContada < x.receitaExtra ? 'so ' + moeda(x.extraContada) + ' contam para o teto de folha' : '') : '') +
         lnTot('Receita', moeda(receitaTotal), 'ok') +
         '<div class="gap"></div>' +
         ln('Folha do elenco', moeda(x.des.folha), 'neg') + ln('Manutencao do elenco', moeda(x.des.manutencao), 'neg') +
@@ -3345,13 +3167,6 @@ function telaRelatorio() {
     ln('Divida do fundo', moeda(-f.divida), f.divida > 0 ? 'neg' : '') +
     lnTot('Patrimonio liquido', moeda(f.patrimonio), 'ok') + '</div></div>';
 
-  if (r.auditorias && r.auditorias.length) {
-    h += sec('auditoria de partes relacionadas', r.auditorias.length + ' reprovada' + (r.auditorias.length === 1 ? '' : 's')) +
-      painel('', '', r.auditorias.map(x =>
-        ln(x.origem + ' para ' + x.destino, moeda(x.multa) + ' de multa', 'neg',
-          'preco ' + x.tipo + ' do valor: ' + moeda(x.preco) + ' contra ' + moeda(x.justo) + ' de mercado')).join('')) +
-      '<div class="gap"></div>';
-  }
   if (r.eventos && r.eventos.length) {
     h += sec('o que aconteceu', r.eventos.length + ' evento' + (r.eventos.length === 1 ? '' : 's')) +
       painel('', '', r.eventos.map(e =>
@@ -3528,15 +3343,6 @@ document.addEventListener('click', e => {
     case 'tgdd': UI.mercDD = !UI.mercDD; UI.mercLimite = 18; render(); break;
     case 'tglivre': UI.mercLivre = !UI.mercLivre; UI.mercLimite = 18; render(); break;
     case 'abamerc': UI.abaMercado = p1; render(); break;
-    case 'sinorig': UI.sinOrigem = Number(p1); render(); break;
-    case 'sinpts': UI.sinPontos = Number(p1); render(); break;
-    case 'sinpre': UI.sinPreco = p1; render(); break;
-    case 'sinergia': {
-      const dest = UI.clube, orig = UI.sinOrigem;
-      const err = transferirForca(orig, dest, UI.sinPontos, UI.sinPreco);
-      if (err) alerta('Nao deu', err); else render();
-      break;
-    }
     case 'maismerc': UI.mercLimite += 18; render(); break;
     case 'alvo': UI.alvo = Number(p1); render(); break;
     case 'voltarmerc': UI.alvo = null; render(); break;

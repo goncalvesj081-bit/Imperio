@@ -18,7 +18,6 @@ O progresso é salvo automaticamente no `localStorage` do navegador. Para contin
 - **Alavancas de investimento:** reforço de elenco, gestão e governança, marketing e sócio-torcedor, categorias de base, centro de treinamento, além de reforma e ampliação de estádio.
 - **Mercado:** compra e venda de clubes, relatórios de *due diligence* e propostas recebidas.
 - **Fundos rivais:** outros fundos disputam os mesmos clubes e aparecem no ranking de patrimônio.
-- **Sinergia:** transferência de força de elenco entre clubes do mesmo fundo, com risco de auditoria.
 - **Fair play financeiro:** o clube é punido se a folha passar do teto em relação à receita.
 - **Extras:** eventos aleatórios, conquistas e relatórios de fim de temporada.
 
@@ -27,7 +26,7 @@ O progresso é salvo automaticamente no `localStorage` do navegador. Para contin
 | Tela | Para que serve |
 | --- | --- |
 | Fundo | Visão geral, avanço das rodadas, crédito e propostas |
-| Ativos | Clubes do fundo: investimentos, finanças e sinergia |
+| Ativos | Clubes do fundo: investimentos e finanças |
 | Mercado | Clubes à venda e ranking dos fundos |
 | Ligas | Classificações e copas |
 | Relatórios | Histórico e balanços das temporadas |
