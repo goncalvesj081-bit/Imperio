@@ -2196,7 +2196,8 @@ function telaInicio() {
       '<b>compra clubes, injeta dinheiro nas alavancas certas e vende no momento certo</b>. O placar e o patrimonio liquido.</p>') +
     '<div class="gap"></div>' +
     (tem ? '<button class="btn" data-a="continuar">Continuar fundo ' + ic('seta') + '</button><div class="gap"></div>' : '') +
-    '<button class="btn ' + (tem ? 'sec2' : '') + '" data-a="criar">Abrir um fundo novo</button></div>';
+    '<button class="btn ' + (tem ? 'sec2' : '') + '" data-a="criar">Abrir um fundo novo</button>' +
+    blocoInstalar() + '</div>';
 }
 function telaCriacao() {
   const caixa = 90e6;
@@ -2338,6 +2339,7 @@ function telaFundo() {
       '<div class="gap"></div><div class="bt2">' +
       '<button class="btn gh" data-a="emprestimo" ' + (lim < 1e6 ? 'disabled' : '') + '>Tomar credito</button>' +
       '<button class="btn sec2" data-a="quitarfundo" ' + (S.f.divida <= 0 || S.f.caixa <= 0 ? 'disabled' : '') + '>Abater divida</button></div>');
+  if (PEDIDO_INSTALAR && !jaInstalado()) h += '<div class="gap"></div><button class="btn gh" data-a="instalar">Instalar o app neste aparelho</button>';
   return h + '</div>';
 }
 
@@ -3377,6 +3379,7 @@ function relEventos() {
   return '<div class="filtros f1">' + campo('Temporada', selHTML('relf', UI.relFiltro,
     [['todas', 'Todas as temporadas']].concat(temps.map(t => [t, 'Temporada ' + t])))) + '</div>' +
     painel('', '', nots.length ? nots.map(n => '<div class="nt"><i class="' + n.tipo + '"></i><span><em>T' + n.temp + '</em>' + esc(n.t) + '</span></div>').join('') : vazio('Sem registros'), true) +
+    (blocoInstalar() ? '<div class="gap"></div>' + sec('aplicativo') + blocoInstalar() : '') +
     '<div class="gap"></div><div class="gap"></div>' + sec('encerrar') +
     '<button class="btn dgr sm" data-a="apagar">Encerrar o fundo e apagar o save</button>';
 }
@@ -3514,6 +3517,28 @@ function telaRelatorio() {
   }
   h += '<div class="gap"></div><button class="btn" data-a="fecharrel">Abrir a pre-temporada ' + S.temporada + ' ' + ic('seta') + '</button>';
   return h + '</div>';
+}
+
+/* ---------------- instalacao como app ---------------- */
+/* chrome e edge avisam quando da para instalar: o jogo guarda o aviso e mostra um botao proprio */
+let PEDIDO_INSTALAR = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); PEDIDO_INSTALAR = e; render(); });
+window.addEventListener('appinstalled', () => { PEDIDO_INSTALAR = null; render(); });
+function jaInstalado() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+}
+function ehIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function textoInstalar() {
+  if (ehIOS()) return 'No iPhone, so o Safari instala: toque no botao de compartilhar (o quadrado com a seta para cima) e escolha "Adicionar a Tela de Inicio".';
+  return 'Se o botao de instalar nao aparecer: no Android, menu de tres pontinhos e "Adicionar a tela inicial" ou "Instalar app". ' +
+    'No computador, menu de tres pontinhos, "Transmitir, salvar e compartilhar" e "Instalar pagina como app". Em aba anonima nao funciona.';
+}
+function blocoInstalar() {
+  if (jaInstalado() || location.protocol === 'file:') return '';
+  if (PEDIDO_INSTALAR) return '<div class="gap"></div><button class="btn gh" data-a="instalar">Instalar o app neste aparelho</button>';
+  return '<div class="gap"></div>' + painel('INSTALAR O APP', '', '<p class="msg">' + esc(textoInstalar()) + '</p>');
 }
 
 /* ---------------- render ---------------- */
@@ -3729,6 +3754,11 @@ document.addEventListener('click', e => {
       break;
     }
     case 'recompra-ok': { fecharModal(); const err = recomprarFatia(UI.clube); if (err) alerta('Nao deu', err); render(); break; }
+    case 'instalar':
+      if (!PEDIDO_INSTALAR) { alerta('Instalar o app', textoInstalar()); break; }
+      PEDIDO_INSTALAR.prompt();
+      PEDIDO_INSTALAR.userChoice.then(() => { PEDIDO_INSTALAR = null; render(); }).catch(() => { });
+      break;
     case 'apagar':
       abrirModal('<h3>Apagar o fundo</h3><p class="msg" style="margin:9px 0 14px">Isso remove o jogo salvo neste aparelho.</p>' +
         '<button class="btn dgr" data-a="apagar-ok">Apagar</button><div class="gap"></div><button class="btn sec2" data-a="fechar">Cancelar</button>');
