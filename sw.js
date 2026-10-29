@@ -1,7 +1,7 @@
 /* service worker: deixa o jogo abrir sem internet depois da primeira visita.
    o jogo vem da rede quando ha conexao (para pegar atualizacoes) e do cache quando nao ha.
    ao mudar a lista de arquivos, suba a versao para descartar o cache antigo */
-const VERSAO = 'fundo-v2';
+const VERSAO = 'fundo-v3';
 const ARQUIVOS = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 const FONTES = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
