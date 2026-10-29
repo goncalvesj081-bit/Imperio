@@ -808,6 +808,7 @@ function tomarEmprestimo(v) {
 }
 function quitarDividaFundo(v) {
   v = Math.round(Math.min(v, S.f.divida, S.f.caixa));
+  if (S.f.divida - v < 1 && S.f.caixa >= S.f.divida) v = S.f.divida;
   if (v <= 0) return 'Sem caixa para abater';
   S.f.divida -= v; S.f.caixa -= v;
   noticia('Abatido ' + moeda(v) + ' da divida do fundo.', 'v');
@@ -830,6 +831,8 @@ function retirar(a, v) {
 function quitarDividaClube(a, v) {
   const c = S.clubes[a.id];
   v = Math.round(Math.min(v, a.divida));
+  /* centavos que sobrariam da conta arredondada: quita junto */
+  if (a.divida - v < 1) v = a.divida;
   if (v <= 0) return 'O clube nao tem divida';
   const err = pagar(a, v);
   if (err) return err;
@@ -1259,7 +1262,7 @@ function encerrarTemporada() {
       S.f.caixa -= doFundo; a.aporte = (a.aporte || 0) + doFundo;
       const resto = falta - doFundo;
       if (resto > 0) {
-        a.divida += resto; linha.calote = resto;
+        a.divida = Math.round(a.divida + resto); linha.calote = Math.round(resto);
         S.f.reputacao = clamp(S.f.reputacao - 3, 0, 100);
         noticia(c.nome + ' fechou no vermelho e rolou ' + moeda(resto) + ' para a divida.', 'r');
       }
@@ -3596,9 +3599,10 @@ function alerta(t, p) {
     '<button class="btn sec2" data-a="fechar">Entendi</button>');
 }
 function modalValor(titulo, texto, maximo, acao) {
-  if (!maximo || maximo < 1e5) { alerta(titulo, 'Nao ha valor disponivel para essa operacao agora.'); return; }
+  /* qualquer valor a partir de R$ 1: divida pequena tambem precisa poder ser quitada */
+  if (!(maximo >= 1)) { alerta(titulo, 'Nao ha valor disponivel para essa operacao agora.'); return; }
   abrirModal('<h3>' + esc(titulo) + '</h3><p class="msg" style="margin:8px 0 12px">' + esc(texto) + '</p>' +
-    [['1', 'tudo'], ['0.5', 'metade'], ['0.25', 'um quarto']].map(f =>
+    [['1', 'tudo'], ['0.5', 'metade'], ['0.25', 'um quarto']].filter(f => Math.floor(maximo * Number(f[0])) >= 1).map(f =>
       '<button class="btn ' + (f[0] === '1' ? '' : 'gh') + '" style="margin-bottom:7px" data-a="' + acao + ':' + Math.floor(maximo * Number(f[0])) + '">' +
       moeda(maximo * Number(f[0])) + ' (' + f[1] + ')</button>').join('') +
     '<button class="btn sec2" data-a="fechar">Cancelar</button>');
