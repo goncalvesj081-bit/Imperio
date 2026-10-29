@@ -20,6 +20,8 @@ Depois, abra o endereço publicado e:
 - **iPhone (Safari):** botão de compartilhar → **Adicionar à Tela de Início**.
 - **Computador (Chrome ou Edge):** ícone de instalar na barra de endereço.
 
+Depois da primeira visita, o jogo abre mesmo sem internet. Quando há conexão, ele busca a versão mais nova sozinho.
+
 O jogo salvo fica no navegador de cada aparelho e de cada endereço. Um fundo salvo abrindo o arquivo direto não aparece na versão publicada, e vice-versa.
 
 ## O jogo
@@ -50,4 +52,4 @@ O jogo salvo fica no navegador de cada aparelho e de cada endereço. Um fundo sa
 
 Tudo está num único arquivo, `index.html`, com HTML, CSS e JavaScript juntos e sem dependências externas além das fontes do Google Fonts.
 
-Para a instalação como app existem também o `manifest.webmanifest` e os ícones (`icon.svg`, `icon-192.png`, `icon-512.png` e `apple-touch-icon.png`). Os PNGs são gerados a partir do `icon.svg`.
+Para a instalação como app existem também o `manifest.webmanifest` e os ícones (`icon.svg`, `icon-192.png`, `icon-512.png` e `apple-touch-icon.png`). Os PNGs são gerados a partir do `icon.svg`. O `sw.js` é o *service worker* que guarda o jogo no aparelho para o modo offline; ao mudar a lista de arquivos dele, suba a `VERSAO`.
