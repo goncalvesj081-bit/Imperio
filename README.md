@@ -10,6 +10,18 @@ Abra o `index.html` em qualquer navegador moderno. Não precisa instalar nada ne
 
 O progresso é salvo automaticamente no `localStorage` do navegador. Para continuar de onde parou, use o botão **Continuar fundo** na tela inicial.
 
+### Instalar como app
+
+O jogo pode ser instalado no celular ou no computador como um app, com ícone próprio e sem a barra do navegador. Para isso ele precisa estar publicado num endereço `https://`, por exemplo no GitHub Pages: no repositório, vá em **Settings → Pages**, escolha a branch principal e a pasta raiz, e salve.
+
+Depois, abra o endereço publicado e:
+
+- **Android (Chrome):** menu ⋮ → **Instalar app** (ou **Adicionar à tela inicial**).
+- **iPhone (Safari):** botão de compartilhar → **Adicionar à Tela de Início**.
+- **Computador (Chrome ou Edge):** ícone de instalar na barra de endereço.
+
+O jogo salvo fica no navegador de cada aparelho e de cada endereço. Um fundo salvo abrindo o arquivo direto não aparece na versão publicada, e vice-versa.
+
 ## O jogo
 
 - **Início:** o fundo começa com R$ 90 mi em caixa e escolhe um primeiro clube barato.
@@ -37,3 +49,5 @@ O progresso é salvo automaticamente no `localStorage` do navegador. Para contin
 ## Estrutura
 
 Tudo está num único arquivo, `index.html`, com HTML, CSS e JavaScript juntos e sem dependências externas além das fontes do Google Fonts.
+
+Para a instalação como app existem também o `manifest.webmanifest` e os ícones (`icon.svg`, `icon-192.png`, `icon-512.png` e `apple-touch-icon.png`). Os PNGs são gerados a partir do `icon.svg`.
