@@ -602,8 +602,13 @@ function jogosCasa(d) { return Math.max(6, N_LIGA[d] - 1); }
 function ocupacao(p, c, pos) {
   const ref = precoRef(c.div);
   const desemp = clamp((11 - (pos || 11)) / 20, -0.14, 0.20);
-  const sens = clamp((p.ingresso / ref - 1) * 0.55, -0.22, 0.62);
-  return clamp(0.26 + p.marca / 100 * 0.34 + p.moral / 100 * 0.22 + p.conservacao / 100 * 0.14 + desemp - sens, 0.10, 0.99);
+  const base = clamp(0.26 + p.marca / 100 * 0.34 + p.moral / 100 * 0.22 + p.conservacao / 100 * 0.14 + desemp, 0.10, 0.99);
+  return clamp(base * efeitoPreco(p.ingresso / ref), 0.01, 0.99);
+}
+/* resposta do publico ao preco, sobre a referencia da liga. acima dela cada real a mais
+   afasta gente sem piso, e a bilheteria tem um preco otimo perto de 1,5x a referencia */
+function efeitoPreco(x) {
+  return x <= 1 ? 1 + (1 - x) * 0.4 : Math.exp(-0.67 * (x - 1));
 }
 function fatorGestao(p) { return 1.22 - p.gestao / 100 * 0.40; }
 function receitaClube(p, c, pos) {
@@ -1223,7 +1228,7 @@ function rankingFundos() {
 function iniciarTemporada() {
   if (!S.donos.length) return 'O fundo precisa de pelo menos um ativo para a temporada comecar. Compre no mercado';
   if (S.f.resgate) return 'Os cotistas pediram resgate de ' + moeda(S.f.resgate.valor) + '. Pague antes de comecar a temporada';
-  if (S.f.devolucao) return S.f.devolucao.inv + ' saiu do conselho e espera ' + moeda(S.f.devolucao.valor) + ' de volta. Devolva antes de comecar a temporada';
+  if (S.f.devolucao) return S.f.devolucao.inv + ' saiu do conselho e espera ' + moeda(valorDevolucao()) + ' de volta. Devolva antes de comecar a temporada';
   if (S.f.captacao) {
     S.f.captacao = null;
     S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
@@ -2095,9 +2100,12 @@ function saidaConselheiro(cs, pat) {
   return valor;
 }
 /* o que faltar no caixa vira divida com ele: as cotas saem inteiras e a cota de quem fica nao muda */
+/* pelo valor da cota no dia do pagamento: assim a cota de quem fica nunca muda */
+function valorDevolucao() { return Math.max(0, Math.round(S.f.devolucao.cotas * valorCota())); }
 function pagarDevolucao() {
   const dv = S.f.devolucao;
   if (!dv) return 'Nao ha devolucao pendente';
+  dv.valor = valorDevolucao();
   const pago = Math.max(0, Math.min(S.f.caixa, dv.valor)), resto = dv.valor - pago;
   S.f.caixa -= pago;
   S.f.divida += resto;
@@ -2440,9 +2448,9 @@ function painelCotistas() {
       '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="resgate">Pagar o resgate</button>';
   }
   if (f.devolucao) {
-    const falta = Math.max(0, f.devolucao.valor - f.caixa);
+    const vDev = valorDevolucao(), falta = Math.max(0, vDev - f.caixa);
     corpo += '<div class="gap"></div><p class="msg"><b>' + esc(f.devolucao.inv) + '</b> saiu do conselho e leva as cotas dele (' + qtd(f.devolucao.cotas) +
-      ') pelo valor do dia: <b>' + moeda(f.devolucao.valor) + '</b>. A temporada so comeca depois da devolucao.' +
+      ') pelo valor do dia: <b>' + moeda(vDev) + '</b>. A temporada so comeca depois da devolucao.' +
       (falta > 0 ? ' Faltam <b>' + moeda(falta) + '</b> no caixa: o que faltar vira divida do fundo, a 11% ao ano. Vender um clube antes evita os juros.' : '') + '</p>' +
       '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="devolver">Devolver o dinheiro</button>';
   }
