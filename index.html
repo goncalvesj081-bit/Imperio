@@ -1223,6 +1223,7 @@ function rankingFundos() {
 function iniciarTemporada() {
   if (!S.donos.length) return 'O fundo precisa de pelo menos um ativo para a temporada comecar. Compre no mercado';
   if (S.f.resgate) return 'Os cotistas pediram resgate de ' + moeda(S.f.resgate.valor) + '. Pague antes de comecar a temporada';
+  if (S.f.devolucao) return S.f.devolucao.inv + ' saiu do conselho e espera ' + moeda(S.f.devolucao.valor) + ' de volta. Devolva antes de comecar a temporada';
   if (S.f.captacao) {
     S.f.captacao = null;
     S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
@@ -1486,6 +1487,7 @@ function carregar() {
     if (S.f.captacao === undefined) S.f.captacao = null;
     if (S.f.captacao && !S.f.captacao.perfil) Object.assign(S.f.captacao, montarOferta(S.f.captacao.valor, patrimonio()));
     if (S.f.conselho === undefined) S.f.conselho = null;
+    if (S.f.devolucao === undefined) S.f.devolucao = null;
     if (S.f.resgate === undefined) S.f.resgate = null;
     if (S.f.ultCaptacao === undefined) S.f.ultCaptacao = -99;
     meus().forEach(a => { if (!a.meta) sortearMeta(a, S.temporada); });
@@ -1951,7 +1953,7 @@ function avaliarCotistas(rel, pat, bonusMetas) {
   f.confianca = clamp(Math.round(f.confianca + d), 0, 100);
   const c = { cota: cota, r: r, media: media, confAntes: confAntes, conf: f.confianca, captacao: 0, resgate: 0 };
   const capta = Math.round(pat * 0.2 / 1e6) * 1e6;
-  if (f.confianca >= CONF_CAPTA && capta >= 1e6 && S.temporada - f.ultCaptacao >= 3 && !f.conselho && !f.resgate) {
+  if (f.confianca >= CONF_CAPTA && capta >= 1e6 && S.temporada - f.ultCaptacao >= 3 && !f.conselho && !f.resgate && !f.devolucao) {
     f.captacao = montarOferta(capta, pat);
     f.ultCaptacao = S.temporada;
     c.captacao = capta;
@@ -2083,34 +2085,50 @@ function progressoExigencia(id, cs) {
   }
   return 'cobrada no fechamento da temporada';
 }
-/* o conselheiro vai embora levando as cotas dele: vira um resgate a pagar na pre-temporada */
+/* o conselheiro vai embora levando as cotas dele pelo valor do dia: a devolucao sai na pre-temporada */
 function saidaConselheiro(cs, pat) {
   const f = S.f, cota = pat / Math.max(1, f.cotas);
   const cotas = Math.min(cs.cotas, f.cotas - 1), valor = Math.max(0, Math.round(cotas * cota));
-  f.resgate = f.resgate
-    ? { frac: (f.resgate.cotas + cotas) / f.cotas, cotas: f.resgate.cotas + cotas, valor: f.resgate.valor + valor }
-    : { frac: cotas / f.cotas, cotas: cotas, valor: valor };
+  f.devolucao = { inv: cs.inv, cotas: cotas, valor: valor };
   f.reputacao = clamp(f.reputacao - 8, 0, 100);
   f.conselho = null;
   return valor;
+}
+/* o que faltar no caixa vira divida com ele: as cotas saem inteiras e a cota de quem fica nao muda */
+function pagarDevolucao() {
+  const dv = S.f.devolucao;
+  if (!dv) return 'Nao ha devolucao pendente';
+  const pago = Math.max(0, Math.min(S.f.caixa, dv.valor)), resto = dv.valor - pago;
+  S.f.caixa -= pago;
+  S.f.divida += resto;
+  S.f.cotas = Math.max(1, S.f.cotas - dv.cotas);
+  S.f.devolucao = null;
+  noticia('Devolvidos ' + moeda(dv.valor) + ' a ' + dv.inv + (resto > 0 ? ', ' + moeda(resto) + ' viraram divida do fundo a 11% ao ano.' : '.'), resto > 0 ? 'r' : 'a');
+  salvar(); return null;
 }
 function avaliarConselho(rel, pat) {
   const cs = S.f.conselho;
   if (!cs) return;
   const itens = cs.exig.map(id => ({ id: id, n: EXIGENCIAS[id].n, esp: EXIGENCIAS[id].esp, ok: exigenciaCumprida(id, cs, rel) }));
   const r = { inv: cs.inv, itens: itens, ate: cs.ate, res: 'andamento', valor: 0 };
-  const falhaEsp = itens.some(x => !x.ok && x.esp), falha = itens.some(x => !x.ok);
+  const falhaEsp = itens.some(x => !x.ok && x.esp), falha = itens.some(x => !x.ok), fim = S.temporada >= cs.ate;
   if (falhaEsp || (falha && cs.adv >= 1)) {
     r.res = 'saiu';
     r.valor = saidaConselheiro(cs, pat);
     S.f.confianca = clamp(S.f.confianca - 10, 0, 100);
     noticia(cs.inv + ' deixou o conselho por exigencia nao cumprida e pediu de volta ' + moeda(r.valor) + '.', 'r');
+  } else if (falha && fim) {
+    /* falhou so na ultima temporada: o mandato acaba, ele sai insatisfeito mas deixa o dinheiro */
+    r.res = 'insatisfeito';
+    S.f.confianca = clamp(S.f.confianca - 10, 0, 100);
+    S.f.conselho = null;
+    noticia(cs.inv + ' encerrou o mandato insatisfeito. O dinheiro fica, mas a confianca dos cotistas caiu.', 'r');
   } else if (falha) {
     cs.adv++;
     r.res = 'advertencia';
     S.f.confianca = clamp(S.f.confianca - 10, 0, 100);
     noticia(cs.inv + ' advertiu a gestao: exigencia do conselho nao cumprida. Na proxima, ele sai e leva o dinheiro.', 'r');
-  } else if (S.temporada >= cs.ate) {
+  } else if (fim) {
     r.res = 'cumpriu';
     S.f.confianca = clamp(S.f.confianca + 10, 0, 100);
     S.f.reputacao = clamp(S.f.reputacao + 5, 0, 100);
@@ -2420,6 +2438,13 @@ function painelCotistas() {
       moeda(f.resgate.valor) + '</b>. A temporada so comeca depois do pagamento.' +
       (falta > 0 ? ' Faltam <b>' + moeda(falta) + '</b> no caixa: venda ou tome credito antes, ou o fundo paga o que tem, trava o resto e perde 8 de reputacao.' : ' Pagando tudo, quem fica volta a confiar um pouco mais.') + '</p>' +
       '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="resgate">Pagar o resgate</button>';
+  }
+  if (f.devolucao) {
+    const falta = Math.max(0, f.devolucao.valor - f.caixa);
+    corpo += '<div class="gap"></div><p class="msg"><b>' + esc(f.devolucao.inv) + '</b> saiu do conselho e leva as cotas dele (' + qtd(f.devolucao.cotas) +
+      ') pelo valor do dia: <b>' + moeda(f.devolucao.valor) + '</b>. A temporada so comeca depois da devolucao.' +
+      (falta > 0 ? ' Faltam <b>' + moeda(falta) + '</b> no caixa: o que faltar vira divida do fundo, a 11% ao ano. Vender um clube antes evita os juros.' : '') + '</p>' +
+      '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="devolver">Devolver o dinheiro</button>';
   }
   return sec('cotistas', 'quem colocou o dinheiro') + painel('', '', corpo) + painelConselho();
 }
@@ -3659,6 +3684,7 @@ function telaRelatorio() {
         '<p class="msg" style="margin-top:9px">' + (r.conselho.res === 'saiu' ? r.conselho.inv + ' saiu do conselho e pediu <b>' + moeda(r.conselho.valor) + '</b> de volta. O pagamento sai na pre-temporada.'
           : r.conselho.res === 'advertencia' ? r.conselho.inv + ' deu uma advertencia: na proxima falha ele sai e leva o dinheiro.'
             : r.conselho.res === 'cumpriu' ? r.conselho.inv + ' encerrou o mandato satisfeito. O dinheiro fica no fundo.'
+              : r.conselho.res === 'insatisfeito' ? r.conselho.inv + ' encerrou o mandato insatisfeito: o dinheiro fica, mas a confianca caiu.'
               : 'Mandato segue ate a temporada ' + r.conselho.ate + '.') + '</p>' : '') +
       (ct.captacao ? '<p class="msg" style="margin-top:9px">Um investidor quer colocar <b>' + moeda(ct.captacao) + '</b> no fundo em troca de uma cadeira no conselho. Decida na pre-temporada.</p>' : '') +
       (ct.resgate && !(r.conselho && r.conselho.res === 'saiu') ? '<p class="msg" style="margin-top:9px">Cotistas insatisfeitos pediram <b>' + moeda(ct.resgate) + '</b> de volta. O pagamento sai na pre-temporada, antes de a bola rolar.</p>' : ''));
@@ -3912,6 +3938,7 @@ document.addEventListener('click', e => {
     case 'captar': { const err = aceitarCaptacao(); if (err) alerta('Nao deu', err); render(); break; }
     case 'captar-nao': recusarCaptacao(); render(); break;
     case 'resgate': { const err = pagarResgate(); if (err) alerta('Nao deu', err); render(); break; }
+    case 'devolver': { const err = pagarDevolucao(); if (err) alerta('Nao deu', err); render(); break; }
     case 'fatia': {
       const at = ativo(UI.clube), c = S.clubes[UI.clube], fatia = Number(p1);
       abrirModal('<h3>Vender ' + pct(fatia) + ' do ' + esc(c.nome) + '</h3>' +
