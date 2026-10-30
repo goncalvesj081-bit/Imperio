@@ -602,8 +602,13 @@ function jogosCasa(d) { return Math.max(6, N_LIGA[d] - 1); }
 function ocupacao(p, c, pos) {
   const ref = precoRef(c.div);
   const desemp = clamp((11 - (pos || 11)) / 20, -0.14, 0.20);
-  const sens = clamp((p.ingresso / ref - 1) * 0.55, -0.22, 0.62);
-  return clamp(0.26 + p.marca / 100 * 0.34 + p.moral / 100 * 0.22 + p.conservacao / 100 * 0.14 + desemp - sens, 0.10, 0.99);
+  const base = clamp(0.26 + p.marca / 100 * 0.34 + p.moral / 100 * 0.22 + p.conservacao / 100 * 0.14 + desemp, 0.10, 0.99);
+  return clamp(base * efeitoPreco(p.ingresso / ref), 0.01, 0.99);
+}
+/* resposta do publico ao preco, sobre a referencia da liga. acima dela cada real a mais
+   afasta gente sem piso, e a bilheteria tem um preco otimo perto de 1,5x a referencia */
+function efeitoPreco(x) {
+  return x <= 1 ? 1 + (1 - x) * 0.4 : Math.exp(-0.67 * (x - 1));
 }
 function fatorGestao(p) { return 1.22 - p.gestao / 100 * 0.40; }
 function receitaClube(p, c, pos) {
