@@ -117,6 +117,9 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--data);font-varia
 .ln .lb{color:var(--muted);font-size:12px;flex:1;min-width:0;line-height:1.35}
 .ln .lb i{display:block;font-style:normal;font-size:9.5px;color:var(--muted2);margin-top:2px}
 .ln .vl{font-weight:600;white-space:nowrap}
+/* linha de texto longo: rotulo em cima, texto embaixo */
+.ln.col{display:block}
+.ln.col .vl{display:block;white-space:normal;margin-top:4px;line-height:1.35}
 .ln.tot{border-top:1px solid var(--line2);border-bottom:0;margin-top:3px;padding-top:9px;font-size:14px}
 .ln.tot .lb{color:var(--txt);font-size:11px;text-transform:uppercase;letter-spacing:1.2px}
 
@@ -721,6 +724,7 @@ function aplicarAlavanca(a, id) {
   const err = pagar(a, L.custo);
   if (err) return err;
   a.gasto = (a.gasto || 0) + L.custo;
+  if (S.f.conselho) S.f.conselho.gasto += L.custo;
   if (L.temps === 0) {
     if (id === 'reforco') { a.elenco = clamp(a.elenco + 2, 0, 100); sincronizar(a); }
     if (id === 'gestao') a.gestao = clamp(a.gestao + 10, 0, 95);
@@ -799,6 +803,8 @@ function limiteCredito() {
   return Math.max(0, patrimonio() * (0.22 + S.f.reputacao / 100 * 0.55) - S.f.divida);
 }
 function tomarEmprestimo(v) {
+  const veto = vetoConselho('credito');
+  if (veto) return veto;
   v = Math.round(v);
   if (v <= 0) return 'Valor invalido';
   if (v > limiteCredito()) return 'Acima do limite de credito do fundo';
@@ -826,6 +832,7 @@ function retirar(a, v) {
   /* com socio, ele leva a parte dele do dividendo */
   const doFundo = Math.round(v * parteDoFundo(a));
   a.caixa -= v; S.f.caixa += doFundo; a.retirado = (a.retirado || 0) + doFundo;
+  if (S.f.conselho) S.f.conselho.saque += doFundo;
   salvar(); return null;
 }
 function quitarDividaClube(a, v) {
@@ -903,6 +910,7 @@ function comprarClube(id, tipoOferta, inicial) {
   const mesmaLiga = temNaLiga(c.div);
   const tinhaDD = temRelatorio(id);
   S.f.caixa -= preco;
+  if (S.f.conselho && !inicial) S.f.conselho.gasto += preco;
   if (c.dono !== null && c.dono !== undefined && S.rivais) {
     const r = S.rivais[c.dono];
     if (r) { r.caixa += preco; r.clubes = r.clubes.filter(x => x !== id); }
@@ -933,6 +941,8 @@ function venderClube(id) {
   if (!ehMeu(id)) return 'Esse clube nao e seu';
   if (S.fase !== 'pre') return 'Vendas so na pre-temporada';
   const c = S.clubes[id], a = c.p, b = balanco(a);
+  const veto = vetoConselho('venderMaior', id) || vetoConselho('venderPrejuizo', b.resultado);
+  if (veto) return veto;
   const v = b.venda;
   S.f.caixa += v;
   S.donos = S.donos.filter(x => x !== id);
@@ -1146,6 +1156,8 @@ function aceitarProposta(k) {
   const c = S.clubes[pr.id], a = c.p, r = S.rivais[pr.rival];
   /* o resultado usa o preco da proposta, nao o valor de venda no mercado aberto */
   const b = balanco(a, pr.valor);
+  const veto = vetoConselho('venderMaior', pr.id) || vetoConselho('venderPrejuizo', b.resultado);
+  if (veto) return veto;
   S.f.caixa += b.venda;
   S.donos = S.donos.filter(x => x !== pr.id);
   r.caixa -= pr.valor;
@@ -1368,6 +1380,7 @@ function encerrarTemporada() {
     if (pat >= (S.f.pico || 0) * 1.05) S.f.reputacao = clamp(S.f.reputacao + 2, 0, 100);
     S.f.pico = pat;
   }
+  avaliarConselho(rel, pat);
   const cot = avaliarCotistas(rel, pat, bonusMetas);
   rel.ciclo = { indice: S.ciclo.indice, fase: S.ciclo.fase };
   rel.ranking = rankingFundos();
@@ -1471,6 +1484,8 @@ function carregar() {
     if (!S.f.cotas) S.f.cotas = S.f.inicial || 90e6;
     if (S.f.confianca === undefined) S.f.confianca = CONF_INICIAL;
     if (S.f.captacao === undefined) S.f.captacao = null;
+    if (S.f.captacao && !S.f.captacao.perfil) Object.assign(S.f.captacao, montarOferta(S.f.captacao.valor, patrimonio()));
+    if (S.f.conselho === undefined) S.f.conselho = null;
     if (S.f.resgate === undefined) S.f.resgate = null;
     if (S.f.ultCaptacao === undefined) S.f.ultCaptacao = -99;
     meus().forEach(a => { if (!a.meta) sortearMeta(a, S.temporada); });
@@ -1936,12 +1951,12 @@ function avaliarCotistas(rel, pat, bonusMetas) {
   f.confianca = clamp(Math.round(f.confianca + d), 0, 100);
   const c = { cota: cota, r: r, media: media, confAntes: confAntes, conf: f.confianca, captacao: 0, resgate: 0 };
   const capta = Math.round(pat * 0.2 / 1e6) * 1e6;
-  if (f.confianca >= CONF_CAPTA && capta >= 1e6 && S.temporada - f.ultCaptacao >= 3) {
-    f.captacao = { valor: capta };
+  if (f.confianca >= CONF_CAPTA && capta >= 1e6 && S.temporada - f.ultCaptacao >= 3 && !f.conselho && !f.resgate) {
+    f.captacao = montarOferta(capta, pat);
     f.ultCaptacao = S.temporada;
     c.captacao = capta;
-    noticia('Os cotistas querem colocar mais ' + moeda(capta) + ' no fundo.', 'v');
-  } else if (f.confianca <= CONF_RESGATE && pat > 0 && S.temporada - (f.ultResgate || -99) >= 2) {
+    noticia(f.captacao.inv + ' quer colocar ' + moeda(capta) + ' no fundo, em troca de uma cadeira no conselho.', 'v');
+  } else if (f.confianca <= CONF_RESGATE && pat > 0 && !f.resgate && S.temporada - (f.ultResgate || -99) >= 2) {
     /* depois de um resgate, uma temporada de folga para a gestao reagir */
     f.ultResgate = S.temporada;
     const frac = clamp(0.10 + (CONF_RESGATE - f.confianca) / 100, 0.10, 0.30);
@@ -1957,14 +1972,20 @@ function aceitarCaptacao() {
   if (!cp) return 'Nao ha captacao na mesa';
   const cota = valorCota();
   if (cota <= 0) return 'Com patrimonio negativo ninguem compra cota';
+  if (!cp.perfil) Object.assign(cp, montarOferta(cp.valor, patrimonio()));
+  const emitidas = Math.round(cp.valor / cota);
   S.f.caixa += cp.valor;
-  S.f.cotas += Math.round(cp.valor / cota);
+  S.f.cotas += emitidas;
   S.f.captacao = null;
+  S.f.conselho = {
+    inv: cp.inv, perfil: cp.perfil, proib: cp.proib, exig: cp.exig.slice(), valor: cp.valor, cotas: emitidas,
+    ate: S.temporada + CONSELHO_MANDATO - 1, adv: 0, gasto: 0, saque: 0
+  };
   S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
   S.f.marcos.captacoes = (S.f.marcos.captacoes || 0) + 1;
   const novas = Math.round(cp.valor / cota);
   noticia('Captacao de ' + moeda(cp.valor) + ' aceita: ' + (novas / 1e6).toFixed(1).replace('.', ',') + ' mi de cotas novas a ' + fmtCota(cota) +
-    ', ' + pct(novas / S.f.cotas) + ' do fundo agora com os novos cotistas.', 'v');
+    ', ' + pct(novas / S.f.cotas) + ' do fundo agora com os novos cotistas. ' + cp.inv + ' assume uma cadeira no conselho.', 'v');
   verificarConquistas();
   salvar(); return null;
 }
@@ -1992,6 +2013,112 @@ function pagarResgate() {
   }
   S.f.resgate = null;
   salvar(); return null;
+}
+
+/* =========================================================
+   CONSELHEIRO
+   quem traz dinheiro novo ganha uma cadeira no conselho por tres
+   temporadas: proibe uma acao e cobra exigencias no fechamento
+   ========================================================= */
+const CONSELHO_MANDATO = 3;
+const PERFIS_INV = {
+  conservador: { n: 'conservador', nomes: ['Fundo de Pensao Maple', 'Previdencia Nordica', 'Caixa dos Professores'], proib: 'credito', exig: 'semPrejuizo', extra: 'semQueda' },
+  ambicioso: { n: 'ambicioso', nomes: ['Fundo Soberano do Golfo', 'Al Noor Investments', 'Desert Falcon Capital'], proib: 'venderMaior', exig: 'investir', extra: 'aproveitamento' },
+  imediatista: { n: 'imediatista', nomes: ['Redwood Hedge Partners', 'Blue Harbor Capital', 'Quantum Ridge'], proib: 'venderPrejuizo', exig: 'dividendos', extra: 'semPrejuizo' },
+  bairrista: { n: 'bairrista', nomes: ['Grupo Vale Verde', 'Familia Andrade Participacoes', 'Construtora Horizonte'], proib: 'ingresso', exig: 'g4', extra: 'semQueda' }
+};
+const PROIBICOES = {
+  credito: 'Tomar credito no fundo',
+  venderMaior: 'Vender o clube mais valioso do fundo',
+  venderPrejuizo: 'Vender clube com prejuizo no projeto',
+  ingresso: 'Cobrar ingresso acima do preco de referencia da liga'
+};
+/* esportiva: falhou, o investidor sai na hora e leva o dinheiro. as outras dao uma advertencia antes */
+const EXIGENCIAS = {
+  semPrejuizo: { n: 'Fechar a temporada sem prejuizo operacional', esp: false },
+  investir: { n: 'Investir em alavancas e compras 30% do valor captado', esp: false },
+  dividendos: { n: 'Sacar dos clubes 5% do valor captado em dividendos', esp: false },
+  g4: { n: 'Ter um clube no G4 da liga ou subindo de divisao', esp: true },
+  semQueda: { n: 'Nenhum clube rebaixado', esp: true },
+  aproveitamento: { n: 'Somar 50% de aproveitamento com os clubes do fundo', esp: true }
+};
+function montarOferta(valor, pat) {
+  const perfil = pick(Object.keys(PERFIS_INV)), P = PERFIS_INV[perfil];
+  /* captacao grande cobra mais: duas exigencias */
+  const exig = valor > pat * 0.25 ? [P.exig, P.extra] : [P.exig];
+  return { valor: valor, inv: pick(P.nomes), perfil: perfil, proib: P.proib, exig: exig };
+}
+function clubeMaisValioso() {
+  let m = null, v = -Infinity;
+  meus().forEach(a => { const x = valorMercado(a, S.clubes[a.id]).liquido; if (x > v) { v = x; m = a.id; } });
+  return m;
+}
+/* devolve o motivo do veto, ou null se o conselheiro deixa */
+function vetoConselho(acao, ctx) {
+  const cs = S.f.conselho;
+  if (!cs || cs.proib !== acao) return null;
+  if (acao === 'venderMaior' && ctx !== clubeMaisValioso()) return null;
+  if (acao === 'venderPrejuizo' && ctx >= 0) return null;
+  if (acao === 'ingresso' && ctx <= 0) return null;
+  return 'Vetado pelo conselheiro ' + cs.inv + ': ' + PROIBICOES[acao].toLowerCase() + ' esta proibido ate o fim da temporada ' + cs.ate;
+}
+function exigenciaCumprida(id, cs, rel) {
+  const cl = rel.clubes;
+  if (id === 'semPrejuizo') return cl.reduce((t, x) => t + x.saldo, 0) >= 0;
+  if (id === 'investir') return cs.gasto >= cs.valor * 0.3;
+  if (id === 'dividendos') return cs.saque >= cs.valor * 0.05;
+  if (id === 'g4') return cl.some(x => x.pos <= 4 || x.subiu || x.campeao);
+  if (id === 'semQueda') return !cl.some(x => x.desceu);
+  const j = cl.reduce((t, x) => t + x.camp.j, 0), pts = cl.reduce((t, x) => t + x.camp.pts, 0);
+  return j > 0 && pts / (j * 3) >= 0.5;
+}
+function progressoExigencia(id, cs) {
+  if (id === 'investir') return moeda(cs.gasto) + ' de ' + moeda(cs.valor * 0.3) + ' nesta temporada';
+  if (id === 'dividendos') return moeda(cs.saque) + ' de ' + moeda(cs.valor * 0.05) + ' nesta temporada';
+  if (S.fase === 'pre') return 'cobrada no fechamento da temporada';
+  if (id === 'g4') return 'melhor posicao hoje: ' + Math.min.apply(null, S.donos.map(id2 => posDoClube(S.clubes[id2]))) + 'o lugar';
+  if (id === 'aproveitamento') {
+    const j = S.donos.reduce((t, id2) => t + S.clubes[id2].st.j, 0), pts = S.donos.reduce((t, id2) => t + S.clubes[id2].st.pts, 0);
+    return j ? pct(pts / (j * 3)) + ' ate aqui' : 'cobrada no fechamento da temporada';
+  }
+  return 'cobrada no fechamento da temporada';
+}
+/* o conselheiro vai embora levando as cotas dele: vira um resgate a pagar na pre-temporada */
+function saidaConselheiro(cs, pat) {
+  const f = S.f, cota = pat / Math.max(1, f.cotas);
+  const cotas = Math.min(cs.cotas, f.cotas - 1), valor = Math.max(0, Math.round(cotas * cota));
+  f.resgate = f.resgate
+    ? { frac: (f.resgate.cotas + cotas) / f.cotas, cotas: f.resgate.cotas + cotas, valor: f.resgate.valor + valor }
+    : { frac: cotas / f.cotas, cotas: cotas, valor: valor };
+  f.reputacao = clamp(f.reputacao - 8, 0, 100);
+  f.conselho = null;
+  return valor;
+}
+function avaliarConselho(rel, pat) {
+  const cs = S.f.conselho;
+  if (!cs) return;
+  const itens = cs.exig.map(id => ({ id: id, n: EXIGENCIAS[id].n, esp: EXIGENCIAS[id].esp, ok: exigenciaCumprida(id, cs, rel) }));
+  const r = { inv: cs.inv, itens: itens, ate: cs.ate, res: 'andamento', valor: 0 };
+  const falhaEsp = itens.some(x => !x.ok && x.esp), falha = itens.some(x => !x.ok);
+  if (falhaEsp || (falha && cs.adv >= 1)) {
+    r.res = 'saiu';
+    r.valor = saidaConselheiro(cs, pat);
+    S.f.confianca = clamp(S.f.confianca - 10, 0, 100);
+    noticia(cs.inv + ' deixou o conselho por exigencia nao cumprida e pediu de volta ' + moeda(r.valor) + '.', 'r');
+  } else if (falha) {
+    cs.adv++;
+    r.res = 'advertencia';
+    S.f.confianca = clamp(S.f.confianca - 10, 0, 100);
+    noticia(cs.inv + ' advertiu a gestao: exigencia do conselho nao cumprida. Na proxima, ele sai e leva o dinheiro.', 'r');
+  } else if (S.temporada >= cs.ate) {
+    r.res = 'cumpriu';
+    S.f.confianca = clamp(S.f.confianca + 10, 0, 100);
+    S.f.reputacao = clamp(S.f.reputacao + 5, 0, 100);
+    S.f.conselho = null;
+    noticia(cs.inv + ' encerrou o mandato satisfeito. O dinheiro fica no fundo.', 'v');
+  }
+  if (S.f.conselho) { cs.gasto = 0; cs.saque = 0; }
+  rel.conselho = r;
 }
 
 /* =========================================================
@@ -2121,6 +2248,10 @@ function painel(titulo, meta, corpo, tight) {
 function ln(lb, vl, cor, sub) {
   return '<div class="ln"><span class="lb">' + esc(lb) + (sub ? '<i>' + esc(sub) + '</i>' : '') + '</span>' +
     '<span class="vl' + (cor ? ' ' + cor : '') + '">' + vl + '</span></div>';
+}
+function lnCol(lb, vl, cor, sub) {
+  return '<div class="ln col"><span class="lb">' + esc(lb) + '</span>' +
+    '<span class="vl' + (cor ? ' ' + cor : '') + '">' + vl + '</span>' + (sub ? '<span class="lb"><i>' + esc(sub) + '</i></span>' : '') + '</div>';
 }
 function lnTot(lb, vl, cor) {
   return '<div class="ln tot"><span class="lb">' + esc(lb) + '</span><span class="vl' + (cor ? ' ' + cor : '') + '">' + vl + '</span></div>';
@@ -2274,7 +2405,12 @@ function painelCotistas() {
       ln('Cotas novas emitidas', qtd(novas), '', 'a ' + fmtCota(cota) + ' cada') +
       ln('Fatia dos novos cotistas', p1(fatia), '', 'os atuais ficam com ' + p1(1 - fatia) + ' de um fundo maior') +
       ln('Valor da cota depois', fmtCota(cota), 'ok', 'nao muda: ninguem perde') +
-      (novato ? '<p class="msg" style="margin-top:9px">Nao e venda: nada sai de voce. Mais caixa para comprar e investir, e o rendimento continua sendo cobrado sobre o fundo inteiro.</p>' : '')) +
+      '<div class="gap"></div>' + lnCol('Quem coloca o dinheiro', esc(f.captacao.inv), '', 'investidor ' + PERFIS_INV[f.captacao.perfil].n) +
+      ln('O preco: cadeira no conselho', CONSELHO_MANDATO + ' temporadas', 'gd', 'ate o fim da temporada ' + (S.temporada + CONSELHO_MANDATO - 1)) +
+      lnCol('Proibe', esc(PROIBICOES[f.captacao.proib]), 'neg') +
+      f.captacao.exig.map(id => lnCol('Exige toda temporada', esc(EXIGENCIAS[id].n), 'neg',
+        EXIGENCIAS[id].esp ? 'meta esportiva: se falhar, ele sai e leva o dinheiro na hora' : 'se falhar duas vezes, ele sai e leva o dinheiro')).join('') +
+      (novato ? '<p class="msg" style="margin-top:9px">Nao e venda: nada sai de voce agora. O custo e o conselheiro: ele trava uma decisao e cobra resultado. Se sair, leva as cotas dele pelo valor do dia.</p>' : '')) +
       '<div class="gap"></div><div class="bt2"><button class="btn sm" data-a="captar">Aceitar</button>' +
       '<button class="btn sec2 sm" data-a="captar-nao">Recusar</button></div>';
   }
@@ -2285,7 +2421,18 @@ function painelCotistas() {
       (falta > 0 ? ' Faltam <b>' + moeda(falta) + '</b> no caixa: venda ou tome credito antes, ou o fundo paga o que tem, trava o resto e perde 8 de reputacao.' : ' Pagando tudo, quem fica volta a confiar um pouco mais.') + '</p>' +
       '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="resgate">Pagar o resgate</button>';
   }
-  return sec('cotistas', 'quem colocou o dinheiro') + painel('', '', corpo);
+  return sec('cotistas', 'quem colocou o dinheiro') + painel('', '', corpo) + painelConselho();
+}
+function painelConselho() {
+  const cs = S.f.conselho;
+  if (!cs) return '';
+  const faltam = cs.ate - S.temporada + 1;
+  return '<div class="gap"></div>' + painel('CONSELHEIRO: ' + cs.inv.toUpperCase(), faltam <= 1 ? 'ULTIMA TEMPORADA' : 'FALTAM ' + faltam + ' TEMPORADAS',
+    ln('Trouxe', moeda(cs.valor), 'ok', 'investidor ' + PERFIS_INV[cs.perfil].n + ', ' + (cs.cotas / 1e6).toFixed(1).replace('.', ',') + ' mi de cotas') +
+    lnCol('Proibe', esc(PROIBICOES[cs.proib]), 'neg') +
+    cs.exig.map(id => lnCol(EXIGENCIAS[id].esp ? 'Exige (esportiva)' : 'Exige', esc(EXIGENCIAS[id].n), 'gd', progressoExigencia(id, cs))).join('') +
+    (cs.adv ? ln('Advertencia', 'ja recebida', 'neg', 'proxima falha: ele sai e leva o dinheiro') : '') +
+    '<p class="msg" style="margin-top:9px">Cumprindo ate o fim do mandato, ele sai satisfeito: o dinheiro fica, e o fundo ganha confianca e reputacao.</p>');
 }
 function telaFundo() {
   let h = '<div class="wrap">';
@@ -2357,7 +2504,7 @@ function telaFundo() {
       ln('Divida do fundo', moeda(S.f.divida), S.f.divida > 0 ? 'neg' : '') +
       ln('Juros ao ano', '11%', '', S.f.divida > 0 ? 'custa ' + moeda(S.f.divida * 0.11) + ' por temporada' : '') +
       '<div class="gap"></div><div class="bt2">' +
-      '<button class="btn gh" data-a="emprestimo" ' + (lim < 1e6 ? 'disabled' : '') + '>Tomar credito</button>' +
+      '<button class="btn gh" data-a="emprestimo" ' + (lim < 1e6 || vetoConselho('credito') ? 'disabled' : '') + '>' + (vetoConselho('credito') ? 'Vetado' : 'Tomar credito') + '</button>' +
       '<button class="btn sec2" data-a="quitarfundo" ' + (S.f.divida <= 0 || S.f.caixa <= 0 ? 'disabled' : '') + '>Abater divida</button></div>');
   if (PEDIDO_INSTALAR && !jaInstalado()) h += '<div class="gap"></div><button class="btn gh" data-a="instalar">Instalar o app neste aparelho</button>';
   return h + '</div>';
@@ -2585,7 +2732,9 @@ function balancoClube(a, c) {
     }
   }
   h += sec('socio minoritario', a.socio ? pct(a.socio) + ' com socio' : 'clube todo do fundo') + painel('', '', soc);
-  h += '<div class="gap"></div><button class="btn warn" data-a="vender" ' + (S.fase !== 'pre' ? 'disabled' : '') + '>Vender o clube</button>' +
+  const vetoVenda = vetoConselho('venderMaior', a.id) || vetoConselho('venderPrejuizo', b.resultado);
+  h += '<div class="gap"></div><button class="btn warn" data-a="vender" ' + (S.fase !== 'pre' || vetoVenda ? 'disabled' : '') + '>Vender o clube</button>' +
+    (vetoVenda ? '<p class="msg" style="margin-top:8px">' + esc(vetoVenda) + '.</p>' : '') +
     (S.fase !== 'pre' ? '<p class="msg" style="margin-top:8px">Venda so na pre-temporada.</p>' :
       S.donos.length <= 1 ? '<p class="msg" style="margin-top:8px">E seu unico ativo. Depois de vender, a temporada so comeca quando voce comprar outro.</p>' : '');
   return h;
@@ -3506,8 +3655,13 @@ function telaRelatorio() {
       ln('Valor da cota', fmtCota(ct.cota), ct.r >= 0 ? 'ok' : 'neg') +
       ln('Rendimento da cota', tx(ct.r), ct.r >= COTA_META ? 'ok' : 'neg', 'media das duas ultimas: ' + tx(ct.media)) +
       ln('Confianca', ct.confAntes + ' para ' + ct.conf, dc > 0 ? 'ok' : dc < 0 ? 'neg' : '', 'metas do conselho tambem pesam') +
-      (ct.captacao ? '<p class="msg" style="margin-top:9px">Os cotistas querem colocar <b>' + moeda(ct.captacao) + '</b> no fundo. Decida na pre-temporada.</p>' : '') +
-      (ct.resgate ? '<p class="msg" style="margin-top:9px">Cotistas insatisfeitos pediram <b>' + moeda(ct.resgate) + '</b> de volta. O pagamento sai na pre-temporada, antes de a bola rolar.</p>' : ''));
+      (r.conselho ? '<div class="gap"></div>' + r.conselho.itens.map(x => lnCol(x.n, x.ok ? 'cumprida' : 'nao cumprida', x.ok ? 'ok' : 'neg', 'exigencia de ' + r.conselho.inv)).join('') +
+        '<p class="msg" style="margin-top:9px">' + (r.conselho.res === 'saiu' ? r.conselho.inv + ' saiu do conselho e pediu <b>' + moeda(r.conselho.valor) + '</b> de volta. O pagamento sai na pre-temporada.'
+          : r.conselho.res === 'advertencia' ? r.conselho.inv + ' deu uma advertencia: na proxima falha ele sai e leva o dinheiro.'
+            : r.conselho.res === 'cumpriu' ? r.conselho.inv + ' encerrou o mandato satisfeito. O dinheiro fica no fundo.'
+              : 'Mandato segue ate a temporada ' + r.conselho.ate + '.') + '</p>' : '') +
+      (ct.captacao ? '<p class="msg" style="margin-top:9px">Um investidor quer colocar <b>' + moeda(ct.captacao) + '</b> no fundo em troca de uma cadeira no conselho. Decida na pre-temporada.</p>' : '') +
+      (ct.resgate && !(r.conselho && r.conselho.res === 'saiu') ? '<p class="msg" style="margin-top:9px">Cotistas insatisfeitos pediram <b>' + moeda(ct.resgate) + '</b> de volta. O pagamento sai na pre-temporada, antes de a bola rolar.</p>' : ''));
   }
 
   if (r.eventos && r.eventos.length) {
@@ -3693,7 +3847,12 @@ document.addEventListener('click', e => {
     case 'fecharrel': UI.relDet = {}; fecharRelatorio(); TELA = 'fundo'; render(); break;
     case 'verclube': UI.clube = Number(p1); TELA = 'clubes'; render(); break;
     case 'abaclube': UI.abaClube = p1; render(); break;
-    case 'ingresso': { const at = ativo(UI.clube); at.ingresso = clamp(at.ingresso + Number(p1), 5, 400); salvar(); render(); break; }
+    case 'ingresso': {
+      const at = ativo(UI.clube), novo = clamp(at.ingresso + Number(p1), 5, 400);
+      const veto = Number(p1) > 0 ? vetoConselho('ingresso', novo - precoRef(S.clubes[UI.clube].div)) : null;
+      if (veto) { alerta('Nao deu', veto); break; }
+      at.ingresso = novo; salvar(); render(); break;
+    }
     case 'alav': { const err = aplicarAlavanca(ativo(UI.clube), p1); if (err) alerta('Nao deu', err); else { salvar(); render(); } break; }
     case 'aportar': modalValor('Aportar no clube', 'Dinheiro do fundo para o caixa do clube.', S.f.caixa, 'aportar-ok'); break;
     case 'aportar-ok': { fecharModal(); const err = aportar(ativo(UI.clube), Number(p1)); if (err) alerta('Nao deu', err); else render(); break; }
@@ -3701,7 +3860,7 @@ document.addEventListener('click', e => {
     case 'retirar-ok': { fecharModal(); const err = retirar(ativo(UI.clube), Number(p1)); if (err) alerta('Nao deu', err); else render(); break; }
     case 'quitarclube': { const at = ativo(UI.clube); modalValor('Quitar divida do clube', 'Tira juros e destrava o valor do ativo.', Math.min(at.divida, at.caixa + S.f.caixa), 'quitarclube-ok'); break; }
     case 'quitarclube-ok': { fecharModal(); const err = quitarDividaClube(ativo(UI.clube), Number(p1)); if (err) alerta('Nao deu', err); else render(); break; }
-    case 'emprestimo': modalValor('Tomar credito', 'Entra no caixa agora e custa 11% ao ano ate ser quitado.', limiteCredito(), 'emprestimo-ok'); break;
+    case 'emprestimo': if (vetoConselho('credito')) { alerta('Nao deu', vetoConselho('credito')); break; } modalValor('Tomar credito', 'Entra no caixa agora e custa 11% ao ano ate ser quitado.', limiteCredito(), 'emprestimo-ok'); break;
     case 'emprestimo-ok': { fecharModal(); const err = tomarEmprestimo(Number(p1)); if (err) alerta('Nao deu', err); else render(); break; }
     case 'quitarfundo': modalValor('Abater divida do fundo', 'Usa o caixa livre para reduzir os juros.', Math.min(S.f.divida, S.f.caixa), 'quitarfundo-ok'); break;
     case 'quitarfundo-ok': { fecharModal(); const err = quitarDividaFundo(Number(p1)); if (err) alerta('Nao deu', err); else render(); break; }
