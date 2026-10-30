@@ -1960,7 +1960,9 @@ function aceitarCaptacao() {
   S.f.cotas += Math.round(cp.valor / cota);
   S.f.captacao = null;
   S.f.marcos.captacoes = (S.f.marcos.captacoes || 0) + 1;
-  noticia('Captacao de ' + moeda(cp.valor) + ' aceita. Novas cotas emitidas a ' + fmtCota(cota) + '.', 'v');
+  const novas = Math.round(cp.valor / cota);
+  noticia('Captacao de ' + moeda(cp.valor) + ' aceita: ' + (novas / 1e6).toFixed(1).replace('.', ',') + ' mi de cotas novas a ' + fmtCota(cota) +
+    ', ' + pct(novas / S.f.cotas) + ' do fundo agora com os novos cotistas.', 'v');
   verificarConquistas();
   salvar(); return null;
 }
@@ -2251,19 +2253,29 @@ function painelCotistas() {
     : conf > 50 ? 'Satisfeitos com a gestao'
       : conf > CONF_RESGATE ? 'Desconfiados: abaixo de ' + CONF_RESGATE + ' parte deles pede o dinheiro de volta'
         : 'Insatisfeitos: no fechamento parte deles pede resgate';
-  let corpo = ln('Valor da cota', fmtCota(cota), cota >= 1 ? 'ok' : 'neg', 'comecou em ' + fmtCota(1)) +
+  const qtd = n => (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
+  const p1 = n => (n * 100).toFixed(1).replace('.', ',') + '%';
+  let corpo = '<p class="msg">O fundo e todo dos cotistas: <b>voce e o gestor</b>, nao dono de uma parte. ' +
+    'Seu placar e o valor da cota, que so muda com o resultado da gestao.</p><div class="gap"></div>' +
+    ln('Cotas no fundo', qtd(f.cotas), '', 'comecou com ' + qtd(f.inicial || 90e6) + ' a ' + fmtCota(1)) +
+    ln('Valor da cota', fmtCota(cota), cota >= 1 ? 'ok' : 'neg', (cota >= 1 ? '+' : '') + Math.round((cota - 1) * 100) + '% desde o inicio') +
     ln('Rendimento na ultima temporada', rUlt === null ? 'ainda sem fechamento' : (rUlt >= 0 ? '+' : '') + (rUlt * 100).toFixed(1).replace('.', ',') + '%',
       rUlt === null ? '' : rUlt >= COTA_META ? 'ok' : 'neg', 'meta de ' + pct(COTA_META) + ' por temporada') +
     mtr('Confianca dos cotistas', conf, CONF_RESGATE, humor, conf <= CONF_RESGATE ? 'neg' : conf >= CONF_CAPTA ? '' : 'gd');
   if (f.captacao) {
-    corpo += '<div class="gap"></div><p class="msg">Os cotistas querem colocar <b>' + moeda(f.captacao.valor) + '</b> no fundo. ' +
-      'Entra no caixa agora, em cotas novas a ' + fmtCota(cota) + ': o rendimento de quem ja esta no fundo nao muda. A oferta vale ate a temporada comecar.</p>' +
+    const novas = cota > 0 ? f.captacao.valor / cota : 0, fatia = novas / (f.cotas + novas);
+    corpo += '<div class="gap"></div>' + painel('OFERTA DE CAPTACAO', 'ATE A TEMPORADA COMECAR',
+      ln('Dinheiro novo no caixa', moeda(f.captacao.valor), 'ok', pct(f.captacao.valor / Math.max(1, patrimonio())) + ' do patrimonio de hoje') +
+      ln('Cotas novas emitidas', qtd(novas), '', 'a ' + fmtCota(cota) + ' cada') +
+      ln('Fatia dos novos cotistas', p1(fatia), '', 'os atuais ficam com ' + p1(1 - fatia) + ' de um fundo maior') +
+      ln('Valor da cota depois', fmtCota(cota), 'ok', 'nao muda: ninguem perde') +
+      '<p class="msg" style="margin-top:9px">Nao e venda: nada sai de voce. Mais caixa para comprar e investir, e o rendimento continua sendo cobrado sobre o fundo inteiro.</p>') +
       '<div class="gap"></div><div class="bt2"><button class="btn sm" data-a="captar">Aceitar</button>' +
       '<button class="btn sec2 sm" data-a="captar-nao">Recusar</button></div>';
   }
   if (f.resgate) {
     const falta = Math.max(0, f.resgate.valor - f.caixa);
-    corpo += '<div class="gap"></div><p class="msg">Cotistas com ' + pct(f.resgate.frac) + ' das cotas pediram o dinheiro de volta: <b>' +
+    corpo += '<div class="gap"></div><p class="msg">Cotistas com ' + pct(f.resgate.frac) + ' das cotas (' + qtd(f.resgate.cotas) + ') pediram o dinheiro de volta: <b>' +
       moeda(f.resgate.valor) + '</b>. A temporada so comeca depois do pagamento.' +
       (falta > 0 ? ' Faltam <b>' + moeda(falta) + '</b> no caixa: venda ou tome credito antes, ou o fundo paga o que tem, trava o resto e perde 8 de reputacao.' : ' Pagando tudo, quem fica volta a confiar um pouco mais.') + '</p>' +
       '<div class="gap"></div><button class="btn ' + (falta > 0 ? 'warn' : '') + '" data-a="resgate">Pagar o resgate</button>';
