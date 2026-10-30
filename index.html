@@ -1213,6 +1213,7 @@ function iniciarTemporada() {
   if (S.f.resgate) return 'Os cotistas pediram resgate de ' + moeda(S.f.resgate.valor) + '. Pague antes de comecar a temporada';
   if (S.f.captacao) {
     S.f.captacao = null;
+    S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
     noticia('A captacao oferecida pelos cotistas expirou sem resposta.', '');
   }
   S.fase = 'temp';
@@ -1959,6 +1960,7 @@ function aceitarCaptacao() {
   S.f.caixa += cp.valor;
   S.f.cotas += Math.round(cp.valor / cota);
   S.f.captacao = null;
+  S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
   S.f.marcos.captacoes = (S.f.marcos.captacoes || 0) + 1;
   const novas = Math.round(cp.valor / cota);
   noticia('Captacao de ' + moeda(cp.valor) + ' aceita: ' + (novas / 1e6).toFixed(1).replace('.', ',') + ' mi de cotas novas a ' + fmtCota(cota) +
@@ -1970,6 +1972,7 @@ function recusarCaptacao() {
   if (!S.f.captacao) return;
   noticia('Captacao de ' + moeda(S.f.captacao.valor) + ' recusada.', '');
   S.f.captacao = null;
+  S.f.captacoesDecididas = (S.f.captacoesDecididas || 0) + 1;
   salvar();
 }
 /* sem caixa para tudo, o fundo paga o que tem e trava o resto, como fundo de verdade
@@ -2255,8 +2258,10 @@ function painelCotistas() {
         : 'Insatisfeitos: no fechamento parte deles pede resgate';
   const qtd = n => (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
   const p1 = n => (n * 100).toFixed(1).replace('.', ',') + '%';
-  let corpo = '<p class="msg">O fundo e todo dos cotistas: <b>voce e o gestor</b>, nao dono de uma parte. ' +
-    'Seu placar e o valor da cota, que so muda com o resultado da gestao.</p><div class="gap"></div>' +
+  /* as explicacoes so aparecem ate o jogador decidir a primeira captacao */
+  const novato = !f.captacoesDecididas;
+  let corpo = (novato ? '<p class="msg">O fundo e todo dos cotistas: <b>voce e o gestor</b>, nao dono de uma parte. ' +
+    'Seu placar e o valor da cota, que so muda com o resultado da gestao.</p><div class="gap"></div>' : '') +
     ln('Cotas no fundo', qtd(f.cotas), '', 'comecou com ' + qtd(f.inicial || 90e6) + ' a ' + fmtCota(1)) +
     ln('Valor da cota', fmtCota(cota), cota >= 1 ? 'ok' : 'neg', (cota >= 1 ? '+' : '') + Math.round((cota - 1) * 100) + '% desde o inicio') +
     ln('Rendimento na ultima temporada', rUlt === null ? 'ainda sem fechamento' : (rUlt >= 0 ? '+' : '') + (rUlt * 100).toFixed(1).replace('.', ',') + '%',
@@ -2269,7 +2274,7 @@ function painelCotistas() {
       ln('Cotas novas emitidas', qtd(novas), '', 'a ' + fmtCota(cota) + ' cada') +
       ln('Fatia dos novos cotistas', p1(fatia), '', 'os atuais ficam com ' + p1(1 - fatia) + ' de um fundo maior') +
       ln('Valor da cota depois', fmtCota(cota), 'ok', 'nao muda: ninguem perde') +
-      '<p class="msg" style="margin-top:9px">Nao e venda: nada sai de voce. Mais caixa para comprar e investir, e o rendimento continua sendo cobrado sobre o fundo inteiro.</p>') +
+      (novato ? '<p class="msg" style="margin-top:9px">Nao e venda: nada sai de voce. Mais caixa para comprar e investir, e o rendimento continua sendo cobrado sobre o fundo inteiro.</p>' : '')) +
       '<div class="gap"></div><div class="bt2"><button class="btn sm" data-a="captar">Aceitar</button>' +
       '<button class="btn sec2 sm" data-a="captar-nao">Recusar</button></div>';
   }
